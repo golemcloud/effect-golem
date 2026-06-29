@@ -41,7 +41,7 @@
  *
  * @since 1.5.0
  */
-import { Cause, Effect, Exit, Schema, SchemaGetter, Scope } from "effect"
+import { Cause, Effect, Exit, Schema, Scope } from "effect"
 import * as QuotaHost from "golem:quota/types@1.5.0"
 import { QuotaClient } from "./host/QuotaClient.js"
 import { Int64, Uint32, Uint64 } from "./WitTypes.js"
@@ -234,21 +234,15 @@ export const QuotaTokenRecord = Schema.Struct({
  * @since 1.5.0
  * @category codecs
  */
-export const QuotaToken: Schema.Codec<
-  QuotaHost.QuotaToken,
-  typeof QuotaTokenRecord.Encoded,
-  never,
-  never
-> = QuotaTokenRecord.pipe(
-  Schema.decodeTo(
-    Schema.declare((u): u is QuotaHost.QuotaToken => u instanceof QuotaHost.QuotaToken),
-    {
-      decode: SchemaGetter.transform((rec: typeof QuotaTokenRecord.Type) =>
-        QuotaHost.QuotaToken.fromRecord(rec),
-      ),
-      encode: SchemaGetter.transform((tok: QuotaHost.QuotaToken) => tok.toRecord()),
-    },
-  ),
+// In the new model a quota-token is an opaque, affine capability handle
+// (`own<quota-token>` in the value tree), not a record-serializable struct —
+// `fromRecord`/`toRecord` are gone. It is exposed here as an opaque schema over
+// the host handle.
+// TODO(phase-5): map this schema through the WitCodec walker to the schema-model
+// `quota-token` capability node (`t.quotaToken` / `v.quotaToken`) so quota tokens
+// can flow as agent inputs/outputs again.
+export const QuotaToken: Schema.Schema<QuotaHost.QuotaToken> = Schema.declare(
+  (u): u is QuotaHost.QuotaToken => u !== null && typeof u === "object",
 )
 
 // ---------------------------------------------------------------------------
@@ -475,7 +469,4 @@ export const withReservation = <A, E, R>(
  * @since 1.5.0
  * @category re-exports
  */
-export type {
-  FailedReservation,
-  QuotaTokenRecord as RawQuotaTokenRecord,
-} from "golem:quota/types@1.5.0"
+export type { FailedReservation } from "golem:quota/types@1.5.0"

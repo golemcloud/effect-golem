@@ -64,21 +64,23 @@ export class ElementValueKindError {
  * @category constructors
  */
 export const componentModelElement = <S extends Schema.Top>(
-  witCodec: WitCodec<S>,
-  context?: string,
+  _witCodec: WitCodec<S>,
+  _context?: string,
 ): ElementCodec<S["Type"]> => ({
-  elementSchema: witCodec.elementSchema,
-  encode: (value) =>
-    Effect.map(
-      Schema.encodeEffect(witCodec.codec as Schema.Codec<S["Type"], any, never, never>)(value),
-      (wv) => ({ tag: "component-model", val: wv }) as CoreTypes.ElementValue,
+  // TODO(phase-5): the element-value / data-schema layer is removed in the new
+  // model — `WitCodec` no longer carries an `elementSchema`, and values flow as a
+  // `schema-value-tree`. Multimodal/Unstructured will be redesigned onto `text`/
+  // `binary` schema nodes + role metadata; until then this lifter is inert.
+  elementSchema: {
+    tag: "component-model",
+    val: { nodes: [] },
+  } as unknown as AgentCommon.ElementSchema,
+  encode: () =>
+    Effect.die(
+      new Error("componentModelElement: not yet migrated to the new schema model (Phase 5)"),
     ),
-  decode: (element) => {
-    if (element.tag !== "component-model") {
-      return Effect.fail(new ElementValueKindError("component-model", element.tag, context))
-    }
-    return Schema.decodeEffect(witCodec.codec as Schema.Codec<S["Type"], any, never, never>)(
-      element.val,
-    )
-  },
+  decode: () =>
+    Effect.die(
+      new Error("componentModelElement: not yet migrated to the new schema model (Phase 5)"),
+    ),
 })
