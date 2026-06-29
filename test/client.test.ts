@@ -6,6 +6,12 @@ import { defineConfig } from "../src/Config.js"
 import { DurabilityModeLive } from "../src/host/DurabilityModeClient.js"
 import * as RpcFake from "./host/RpcFake.js"
 import { __resetIdempotency } from "./mocks/golem-api-host.js"
+import {
+  schemaValueFromWit,
+  schemaValueToWit,
+  v,
+  type SchemaValue,
+} from "../src/internal/schema-model/index.js"
 
 const Counter = defineAgent({
   name: "Counter",
@@ -35,18 +41,31 @@ const Worker = defineAgent({
   }),
 )
 
-const decodeWv = <S extends Schema.Top>(s: S, wv: any): Effect.Effect<S["Type"], unknown> =>
+/**
+ * Decode a `SchemaValue` (the new schema-value-tree leaf the codec
+ * yields) back to its decoded TS value. On the schema-value model the
+ * encoded form is a `SchemaValue`, so `decodeEffect` takes one directly.
+ */
+const decodeSv = <S extends Schema.Top>(s: S, sv: SchemaValue): Effect.Effect<S["Type"], unknown> =>
   Effect.gen(function* () {
     const { toWitCodec } = yield* Effect.promise(() => import("../src/WitCodec.js"))
     const codec = yield* toWitCodec(s)
-    return yield* Schema.decodeEffect(codec.codec)(wv) as Effect.Effect<S["Type"], unknown, never>
+    return yield* Schema.decodeEffect(codec.codec)(sv) as Effect.Effect<S["Type"], unknown, never>
   })
 
-const encodeWv = <S extends Schema.Top>(s: S, value: S["Type"]): Effect.Effect<any, unknown> =>
+/**
+ * Encode a TS value to its `SchemaValue` form through the schema's
+ * WitCodec. Used to build the fake host's response trees and to assert
+ * on recorded constructor / method input trees.
+ */
+const encodeSv = <S extends Schema.Top>(
+  s: S,
+  value: S["Type"],
+): Effect.Effect<SchemaValue, unknown> =>
   Effect.gen(function* () {
     const { toWitCodec } = yield* Effect.promise(() => import("../src/WitCodec.js"))
     const codec = yield* toWitCodec(s)
-    return yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<any, unknown, never>
+    return yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<SchemaValue, unknown, never>
   })
 
 /**
@@ -80,12 +99,12 @@ describe("AgentClient (durable)", () => {
   it.effect("get(): constructs a WasmRpc with no phantomId and round-trips a method call", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      const numWv = yield* encodeWv(Schema.Number, 42)
+      const numSv = yield* encodeSv(Schema.Number, 42)
       yield* fake.setResponder(({ methodName }) => {
         if (methodName === "getValue") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: numWv }] } as any,
+            val: schemaValueToWit(numSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
@@ -107,12 +126,11 @@ describe("AgentClient (durable)", () => {
       expect(c.methodName).toBe("getValue")
       expect(c.agentTypeName).toBe("Counter")
       expect(c.phantomId).toBeUndefined()
-      // constructor input is a tuple<{ initial: f64 }>
-      expect((c.constructorValue as any).tag).toBe("tuple")
-      expect((c.constructorValue as any).val.length).toBe(1)
-      const ctorElem = (c.constructorValue as any).val[0]
-      expect(ctorElem.tag).toBe("component-model")
-      const decodedCtor = yield* decodeWv(Schema.Number, ctorElem.val)
+      // constructor input is a record<{ initial: f64 }>
+      const ctorSv = schemaValueFromWit(c.constructorValue) as any
+      expect(ctorSv.tag).toBe("record")
+      expect(ctorSv.fields.length).toBe(1)
+      const decodedCtor = yield* decodeSv(Schema.Number, ctorSv.fields[0])
       expect(decodedCtor).toBe(7)
     }),
   )
@@ -120,9 +138,10 @@ describe("AgentClient (durable)", () => {
   it.effect("get(): encodes named method args positionally", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
+      // `add` returns Schema.Void (unit) → host returns no value.
       yield* fake.setResponder(() => ({
         tag: "ok",
-        val: { tag: "tuple", val: [] } as any,
+        val: undefined,
       }))
       yield* Effect.provide(
         Effect.gen(function* () {
@@ -135,9 +154,10 @@ describe("AgentClient (durable)", () => {
       const calls = yield* fake.getRecordedCalls
       const c = calls[0]!
       expect(c.methodName).toBe("add")
-      expect((c.input as any).tag).toBe("tuple")
-      expect((c.input as any).val.length).toBe(1)
-      const decoded = yield* decodeWv(Schema.Number, (c.input as any).val[0].val)
+      const inputSv = schemaValueFromWit(c.input) as any
+      expect(inputSv.tag).toBe("record")
+      expect(inputSv.fields.length).toBe(1)
+      const decoded = yield* decodeSv(Schema.Number, inputSv.fields[0])
       expect(decoded).toBe(5)
     }),
   )
@@ -145,7 +165,7 @@ describe("AgentClient (durable)", () => {
   it.effect("trigger(): uses fire-and-forget invoke and resolves to void", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      yield* fake.setResponder(() => ({ tag: "ok", val: undefined as any }))
+      yield* fake.setResponder(() => ({ tag: "ok", val: undefined }))
       yield* Effect.provide(
         Effect.gen(function* () {
           const remote = yield* Counter.client.get({ initial: 0 })
@@ -187,7 +207,7 @@ describe("AgentClient (durable)", () => {
   it.effect("getPhantom(): parses the uuid and forwards it to the WasmRpc constructor", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      yield* fake.setResponder(() => ({ tag: "ok", val: { tag: "tuple", val: [] } as any }))
+      yield* fake.setResponder(() => ({ tag: "ok", val: undefined }))
       const phantomId = "12345678-1234-1234-1234-1234567890ab"
       yield* Effect.provide(
         Effect.gen(function* () {
@@ -229,7 +249,7 @@ describe("AgentClient (durable)", () => {
   it.effect("newPhantom(): generates a fresh phantom id and exposes it on the remote handle", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      yield* fake.setResponder(() => ({ tag: "ok", val: { tag: "tuple", val: [] } as any }))
+      yield* fake.setResponder(() => ({ tag: "ok", val: undefined }))
       const remote = yield* Effect.provide(
         Effect.gen(function* () {
           const remote = yield* Counter.client.newPhantom({ initial: 0 })
@@ -337,9 +357,14 @@ describe("AgentClient (durable)", () => {
     () =>
       Effect.gen(function* () {
         const { fake, layer } = yield* makeRpcRuntime
+        // On the schema-value model a `custom-error` carries a
+        // `typed-schema-value` (a value tree + its schema graph). This
+        // payload is opaque to the client — it travels through the
+        // RpcError channel untouched and is asserted via `toEqual`, so
+        // the exact tree shape here is illustrative (an empty record).
         const agentError = {
           tag: "custom-error",
-          val: { value: { tag: "tuple", val: [] }, schema: undefined },
+          val: { value: schemaValueToWit(v.record([])), schema: undefined },
         }
         yield* fake.setResponder(() => {
           const err = new Error("remote-agent-error: typed failure")
@@ -445,7 +470,7 @@ describe("AgentClient overrides (config)", () => {
     () =>
       Effect.gen(function* () {
         const { fake, layer } = yield* makeRpcRuntime
-        yield* fake.setResponder(() => ({ tag: "ok", val: { tag: "tuple", val: [] } as any }))
+        yield* fake.setResponder(() => ({ tag: "ok", val: undefined }))
         yield* Effect.provide(
           Effect.gen(function* () {
             const remote = yield* Counter2.client.get(
@@ -484,12 +509,12 @@ describe("AgentClient (ephemeral)", () => {
   it.effect("newPhantom on ephemeral can invoke methods", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      const okWv = yield* encodeWv(Schema.String, "done")
+      const okSv = yield* encodeSv(Schema.String, "done")
       yield* fake.setResponder(({ methodName }) => {
         if (methodName === "run") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: okWv }] } as any,
+            val: schemaValueToWit(okSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected") }
@@ -508,7 +533,8 @@ describe("AgentClient (ephemeral)", () => {
       const calls = yield* fake.getRecordedCalls
       expect(calls.length).toBe(1)
       expect(calls[0]!.agentTypeName).toBe("Worker")
-      const decoded = yield* decodeWv(Schema.Number, (calls[0]!.input as any).val[0].val)
+      const inputSv = schemaValueFromWit(calls[0]!.input) as any
+      const decoded = yield* decodeSv(Schema.Number, inputSv.fields[0])
       expect(decoded).toBe(3)
     }),
   )
@@ -599,12 +625,12 @@ describe("AgentClient (interruptibility)", () => {
     () =>
       Effect.gen(function* () {
         const { fake, layer } = yield* makeRpcRuntime
-        const numWv = yield* encodeWv(Schema.Number, 99)
+        const numSv = yield* encodeSv(Schema.Number, 99)
         yield* fake.setResponder(({ methodName }) => {
           if (methodName === "getValue") {
             return {
               tag: "ok",
-              val: { tag: "tuple", val: [{ tag: "component-model", val: numWv }] } as any,
+              val: schemaValueToWit(numSv),
             }
           }
           return { tag: "throw", error: new Error("unexpected method") }
@@ -746,10 +772,10 @@ describe("AgentClient (interruptibility)", () => {
       // Drive the late resolution explicitly. It must not crash, and
       // the producer count must NOT increment (the future is already
       // cancelled). The cancellations list also stays at 1.
-      const numWv = yield* encodeWv(Schema.Number, 7)
+      const numSv = yield* encodeSv(Schema.Number, 7)
       yield* fake.resolvePending("getValue", {
         tag: "ok",
-        val: { tag: "tuple", val: [{ tag: "component-model", val: numWv }] } as any,
+        val: schemaValueToWit(numSv),
       })
 
       const afterCount = yield* fake.getProduceCallCount("getValue")
@@ -761,12 +787,12 @@ describe("AgentClient (interruptibility)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Typed errors — the wire response is a component-model `result<S, E>`
-// carried by the success-DataValue. Verifies the *client* side of the
-// "RemoteMethod over-promises typed remote failures" fix: the
+// Typed errors — the wire response is a `result<S, E>` schema-value tree
+// carried as the method's single output value. Verifies the *client* side
+// of the "RemoteMethod over-promises typed remote failures" fix: the
 // `RemoteMethod`'s typed E channel actually delivers when the host returns
-// a `Result.fail(...)`-encoded ValueAndType, and a successful Result
-// unwraps to the bare success value.
+// a `Result.fail(...)`-encoded value, and a successful Result unwraps to
+// the bare success value.
 // ---------------------------------------------------------------------------
 
 const NotFoundErr = Schema.Struct({
@@ -807,7 +833,7 @@ describe("AgentClient — typed errors", () => {
       const { fake, layer } = yield* makeRpcRuntime
       // Server side encodes its handler's success as Result.succeed(N)
       // through `Schema.Result(Schema.Number, NotFoundErr)`.
-      const okWv = yield* encodeWv(
+      const okSv = yield* encodeSv(
         Schema.Result(Schema.Number, NotFoundErr),
         Result.succeed(123) as any,
       )
@@ -815,7 +841,7 @@ describe("AgentClient — typed errors", () => {
         if (methodName === "fetch") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: okWv }] } as any,
+            val: schemaValueToWit(okSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
@@ -835,7 +861,7 @@ describe("AgentClient — typed errors", () => {
   it.effect("rpc response carrying Result.fail surfaces as the typed E (NOT RpcCallError)", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      const errWv = yield* encodeWv(
+      const errSv = yield* encodeSv(
         Schema.Result(Schema.Number, NotFoundErr),
         Result.fail({ _tag: "NotFoundErr" as const, resource: "alice" }) as any,
       )
@@ -843,7 +869,7 @@ describe("AgentClient — typed errors", () => {
         if (methodName === "fetch") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: errWv }] } as any,
+            val: schemaValueToWit(errSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
@@ -872,7 +898,7 @@ describe("AgentClient — typed errors", () => {
       const { fake, layer } = yield* makeRpcRuntime
       // Server-side encodes the success arm as Result.succeed({}) over an
       // empty-record stand-in (component model has no unit type).
-      const okWv = yield* encodeWv(
+      const okSv = yield* encodeSv(
         Schema.Result(Schema.Struct({}), NotFoundErr),
         Result.succeed({}) as any,
       )
@@ -880,7 +906,7 @@ describe("AgentClient — typed errors", () => {
         if (methodName === "cmd") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: okWv }] } as any,
+            val: schemaValueToWit(okSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
@@ -899,18 +925,19 @@ describe("AgentClient — typed errors", () => {
     }),
   )
 
-  it.effect("Schema.Void success + typed error: empty wire tuple is a wire-format violation", () =>
+  it.effect("Schema.Void success + typed error: a missing wire value is a wire-format violation", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
       // Methods declared with `Schema.Void` AND a typed error always
-      // carry a 1-element `result<{}, E>` wrapper on the wire. A
-      // 0-element tuple in that case is malformed and must be
-      // rejected — even though void+no-error methods accept it.
+      // carry a `result<{}, E>` value on the wire (output schema is
+      // `single`, never `unit`). A missing value (`option::none`) in
+      // that case is malformed and must be rejected — even though
+      // void+no-error methods accept it.
       yield* fake.setResponder(({ methodName }) => {
         if (methodName === "cmd") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [] } as any,
+            val: undefined,
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
@@ -929,14 +956,14 @@ describe("AgentClient — typed errors", () => {
       if (result._tag !== "Failure") return
       const failure: any = result.failure
       expect(failure._tag).toBe("RemoteResponseError")
-      expect(failure.reason).toMatch(/expected 1 element, got 0/)
+      expect(failure.reason).toMatch(/expected a return value, got none/)
     }),
   )
 
   it.effect("Schema.Void success + typed error: failure arm surfaces typed E", () =>
     Effect.gen(function* () {
       const { fake, layer } = yield* makeRpcRuntime
-      const errWv = yield* encodeWv(
+      const errSv = yield* encodeSv(
         Schema.Result(Schema.Struct({}), NotFoundErr),
         Result.fail({ _tag: "NotFoundErr" as const, resource: "missing" }) as any,
       )
@@ -944,7 +971,7 @@ describe("AgentClient — typed errors", () => {
         if (methodName === "cmd") {
           return {
             tag: "ok",
-            val: { tag: "tuple", val: [{ tag: "component-model", val: errWv }] } as any,
+            val: schemaValueToWit(errSv),
           }
         }
         return { tag: "throw", error: new Error("unexpected method") }
