@@ -2,11 +2,11 @@
  * @since 1.5.0
  */
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Ref, Schema, Scope } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
 import type * as ApiHost from "golem:api/host@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
 import type { DatabaseSync } from "node:sqlite"
-import { ElementValueKindError } from "../Element.js"
 import { AgentHostClient } from "../host/AgentHostClient.js"
 import { EnvironmentClient } from "../host/EnvironmentClient.js"
 import { HostLive, type HostServices } from "../host/HostLive.js"
@@ -21,15 +21,21 @@ import type { BindableKeys, MountDefCovering, WebhookVarsValid } from "./httpTyp
 import { isMultimodal } from "../Multimodal.js"
 import {
   compileMethodSpec,
-  compileParamBindings,
-  invokeDataValue,
+  compileParamCodecs,
+  invokeSchemaValue,
   type Handler,
   type MethodCodec,
   type MethodInput,
   type MethodParams,
   type MethodSpec,
-  type ParamBinding,
 } from "./method.js"
+import {
+  emptyMetadata,
+  GraphEncoder,
+  mergeGraphDefs,
+  schemaValueFromWit,
+  type SchemaGraph,
+} from "./schema-model/index.js"
 import { Principal } from "../Principal.js"
 import { SelfAgentId } from "../SelfAgentId.js"
 import {
@@ -580,8 +586,6 @@ interface CompiledAgent {
    * {@link dispatchLoadSnapshot} with the decoded constructor input.
    */
   readonly impl: AgentImpl<MethodParams, Record<string, AnyMethodSpec>, never, SnapshotDef>
-  readonly constructorBindings: ReadonlyArray<ParamBinding>
-  /** Filtered view of {@link constructorBindings}: only component-model wire bindings. */
   readonly constructorCodecs: ReadonlyArray<ParamCodec>
   readonly methodCodecs: ReadonlyMap<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>
   readonly agentType: AgentCommon.AgentType
@@ -671,18 +675,10 @@ export const registerAgent = <
       return yield* Effect.fail(new DuplicateAgentNameError(metadata.name))
     }
 
-    const constructorBindings = (yield* compileParamBindings(
+    const constructorCodecs = (yield* compileParamCodecs(
       `${metadata.name} constructor`,
       metadata.constructorParams,
-    )) as Array<ParamBinding>
-
-    const constructorWire = constructorBindings.filter(
-      (b): b is Extract<ParamBinding, { kind: "wire" }> => b.kind === "wire",
-    )
-    // Backwards-compatible component-model only view.
-    const constructorCodecs: Array<ParamCodec> = constructorWire
-      .filter((b): b is typeof b & { witCodec: WitCodec<Schema.Top> } => b.witCodec !== null)
-      .map((b) => ({ name: b.name, codec: b.witCodec }))
+    )) as Array<ParamCodec>
 
     const methodCodecs = new Map<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>()
     const methodHttpInputs: Array<MethodHttpInput> = []
@@ -702,11 +698,6 @@ export const registerAgent = <
       })
     }
 
-    const constructorSchema: AgentCommon.DataSchema = {
-      tag: "tuple",
-      val: constructorWire.map((b) => [b.name, b.element.elementSchema]),
-    }
-
     // Validate + compile HTTP routes (mount + per-method endpoints).
     const compiledHttp = yield* validateAgentHttp({
       agentName: metadata.name,
@@ -718,22 +709,6 @@ export const registerAgent = <
       stringBindableConstructorParams: collectStringBindableParams(metadata.constructorParams),
       methods: methodHttpInputs,
     })
-
-    // Now build the AgentMethod records, attaching the compiled
-    // httpEndpoint list per method.
-    const agentMethods: Array<AgentCommon.AgentMethod> = []
-    for (const [methodName, spec] of Object.entries(metadata.methods)) {
-      const mc = methodCodecs.get(methodName)!
-      const eps = compiledHttp.endpoints.get(methodName) ?? []
-      agentMethods.push({
-        name: methodName,
-        description: spec.description ?? "",
-        httpEndpoint: [...eps],
-        promptHint: spec.promptHint,
-        inputSchema: mc.inputSchema,
-        outputSchema: mc.outputSchema,
-      })
-    }
 
     let compiledConfig: CompiledConfig | null = null
     let configDeclarations: Array<AgentCommon.AgentConfigDeclaration> = []
@@ -751,14 +726,56 @@ export const registerAgent = <
       snapshotting = { tag: "enabled", val: cs.witConfig }
     }
 
+    // Assemble the WIT `AgentType`: merge every per-schema graph into one pool
+    // and encode each root into a shared `schema-graph` via `GraphEncoder`. Each
+    // constructor/method parameter (and single output) is a `type-node-index`
+    // into that pool.
+    const graphs: Array<SchemaGraph> = []
+    for (const c of constructorCodecs) graphs.push(c.codec.graph)
+    for (const mc of methodCodecs.values()) {
+      for (const ic of mc.inputCodecs) graphs.push(ic.codec.graph)
+      if (mc.output.tag === "single") graphs.push(mc.output.codec.graph)
+    }
+    const encoder = new GraphEncoder(mergeGraphDefs(graphs))
+    const encodeInput = (codecs: ReadonlyArray<ParamCodec>): AgentCommon.InputSchema => ({
+      tag: "parameters",
+      val: codecs.map((c) => ({
+        name: c.name,
+        source: { tag: "user-supplied" },
+        schema: encoder.encodeType(c.codec.graph.root),
+        metadata: emptyMetadata(),
+      })),
+    })
+
+    const agentMethods: Array<AgentCommon.AgentMethod> = []
+    for (const [methodName, spec] of Object.entries(metadata.methods)) {
+      const mc = methodCodecs.get(methodName)!
+      const eps = compiledHttp.endpoints.get(methodName) ?? []
+      const outputSchema: AgentCommon.OutputSchema =
+        mc.output.tag === "unit"
+          ? { tag: "unit" }
+          : { tag: "single", val: encoder.encodeType(mc.output.codec.graph.root) }
+      agentMethods.push({
+        name: methodName,
+        description: spec.description ?? "",
+        httpEndpoint: [...eps],
+        promptHint: spec.promptHint,
+        readOnly: undefined,
+        inputSchema: encodeInput(mc.inputCodecs),
+        outputSchema,
+      })
+    }
+
     const agentType: AgentCommon.AgentType = {
       typeName: metadata.name,
       description: metadata.description ?? "",
       sourceLanguage: "typescript",
+      schema: encoder.finish(),
       constructor: {
+        name: undefined,
         description: "",
         promptHint: metadata.promptHint,
-        inputSchema: constructorSchema,
+        inputSchema: encodeInput(constructorCodecs),
       },
       methods: agentMethods,
       dependencies: [],
@@ -783,7 +800,6 @@ export const registerAgent = <
         never,
         SnapshotDef
       >,
-      constructorBindings,
       constructorCodecs,
       methodCodecs,
       agentType,
@@ -860,36 +876,33 @@ export const __resetAgents = async (): Promise<void> => {
   pendingRegistrationErrors.length = 0
 }
 
-/** Decode an incoming constructor-input `DataValue` into a record of
+/** Decode an incoming constructor-input `schema-value-tree` into a record of
  *  decoded parameter values, in the same way both `initialize` and
  *  `load` need to. */
 const decodeConstructorInput = async (
   agentTypeName: string,
   compiled: CompiledAgent,
-  input: CoreTypes.DataValue,
+  input: SchemaValueTree,
 ): Promise<Record<string, unknown>> => {
-  if (input.tag !== "tuple") {
-    throw new Error(`${agentTypeName} constructor: expected tuple DataValue, got ${input.tag}`)
+  const codecs = compiled.constructorCodecs
+  const constructorInput: Record<string, unknown> = {}
+  if (codecs.length === 0) return constructorInput
+
+  const sv = schemaValueFromWit(input)
+  if (sv.tag !== "record") {
+    throw new Error(`${agentTypeName} constructor: expected a record input value, got ${sv.tag}`)
   }
-  const wireBindings = compiled.constructorBindings.filter(
-    (b): b is Extract<ParamBinding, { kind: "wire" }> => b.kind === "wire",
-  )
-  if (input.val.length !== wireBindings.length) {
+  const fields = sv.fields
+  if (fields.length !== codecs.length) {
     throw new Error(
-      `${agentTypeName} constructor: expected ${wireBindings.length} argument(s), got ${input.val.length}`,
+      `${agentTypeName} constructor: expected ${codecs.length} argument(s), got ${fields.length}`,
     )
   }
-  const constructorInput: Record<string, unknown> = {}
-  for (let i = 0; i < wireBindings.length; i++) {
-    const b = wireBindings[i]!
-    const ev = input.val[i]!
-    constructorInput[b.name] = await Effect.runPromise(
-      Effect.mapError(b.element.decode(ev), (err) =>
-        err instanceof ElementValueKindError
-          ? new Error(
-              `${agentTypeName} constructor: argument ${i} (${b.name}) is ${err.actual}, expected ${err.expected}`,
-            )
-          : err,
+  for (let i = 0; i < codecs.length; i++) {
+    const c = codecs[i]!
+    constructorInput[c.name] = await Effect.runPromise(
+      Schema.decodeEffect(c.codec.codec as Schema.Codec<any, any, never, never>)(
+        fields[i]!,
       ) as Effect.Effect<unknown, unknown, never>,
     )
   }
@@ -990,7 +1003,7 @@ const initAgentInstance = async (
  */
 export const dispatchInitialize = async (
   agentTypeName: string,
-  input: CoreTypes.DataValue,
+  input: SchemaValueTree,
   principal: AgentCommon.Principal,
 ): Promise<void> => {
   const compiled = registry.get(agentTypeName)
@@ -1032,9 +1045,9 @@ export const dispatchInitialize = async (
  */
 export const dispatchInvoke = async (
   methodName: string,
-  input: CoreTypes.DataValue,
+  input: SchemaValueTree,
   principal: AgentCommon.Principal,
-): Promise<CoreTypes.DataValue> => {
+): Promise<SchemaValueTree | undefined> => {
   if (activeAgent === null) {
     throw new Error(`agent is not initialized; cannot invoke ${methodName}`)
   }
@@ -1057,14 +1070,14 @@ export const dispatchInvoke = async (
   // `activeAgent`). The optional config service is rebuilt fresh per
   // invocation: regular fields are memoized for the duration of THIS
   // call only; secret fields are never cached.
-  let program: Effect.Effect<CoreTypes.DataValue, unknown, never> = invokeDataValue(
+  let program: Effect.Effect<SchemaValueTree | undefined, unknown, never> = invokeSchemaValue(
     mc,
     handler,
     input,
   ).pipe(
     Effect.provideService(Principal, principal),
     Effect.provideService(SelfAgentId, activeAgent.selfAgentId),
-  ) as Effect.Effect<CoreTypes.DataValue, unknown, never>
+  ) as Effect.Effect<SchemaValueTree | undefined, unknown, never>
   if (compiled.compiledConfig !== null && compiled.metadata.config !== undefined) {
     const shape = await runUserPromise(compiled.compiledConfig.buildShape())
     program = program.pipe(
@@ -1311,7 +1324,9 @@ export const dispatchLoadSnapshot = async (snapshot: ApiHost.Snapshot): Promise<
   const constructorInput = await decodeConstructorInput(
     agentTypeName,
     compiled,
-    ctorDataValue as CoreTypes.DataValue,
+    // TODO(phase-4): once `AgentHostClient.parseAgentId` is migrated it returns a
+    // `typed-schema-value`; use `ctorDataValue.value` (the `schema-value-tree`).
+    ctorDataValue as unknown as SchemaValueTree,
   )
   const { scope, handlers, bindingHandle, selfAgentId } = await initAgentInstance(
     agentTypeName,

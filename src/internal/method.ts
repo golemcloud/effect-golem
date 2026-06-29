@@ -2,12 +2,11 @@
  * @since 1.5.0
  */
 import { Effect, Pipeable, Result, Schema } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
-import { componentModelElement, ElementValueKindError, type ElementCodec } from "../Element.js"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
 import type { HostServices } from "../host/HostLive.js"
 import type { EndpointDef } from "../Http.js"
-import { isMultimodal, type Multimodal, type MultimodalShape } from "../Multimodal.js"
+import { isMultimodal, type Multimodal } from "../Multimodal.js"
+import { schemaValueFromWit, schemaValueToWit, type SchemaValue } from "./schema-model/index.js"
 import type {
   BindableKeys,
   EndpointBound,
@@ -536,53 +535,31 @@ export const invoke = <
 ): Effect.Effect<Success["Type"], Error["Type"], R> => m.body(input)
 
 /**
- * Internal binding for a single method/constructor parameter slot.
- * Today every parameter is a `wire` binding (a Schema → ElementCodec)
- * or a `multimodal` binding. Runtime-injected values such as
- * {@link Principal} are not modeled as bindings at all — they reach
- * user code as Effect services provided by the dispatcher.
+ * A single method/constructor parameter compiled to its WIT codec, in
+ * declaration order. In the new schema model a parameter is just a
+ * `WitCodec` (no element wrapper); its `graph.root` is encoded into the
+ * agent's shared `schema-graph` when the `AgentType` is assembled.
  *
- * @since 1.5.0
+ * Multimodal / unstructured parameters (which map to `text`/`binary` schema
+ * types) are not yet supported on the new model — see the Phase 5 redesign.
+ *
+ * @since 1.6.0
  * @category models
  */
-export type ParamBinding =
-  | {
-      readonly kind: "wire"
-      readonly name: string
-      readonly element: ElementCodec<unknown>
-      /**
-       * The `WitCodec` backing the element when the element is a
-       * component-model value. `null` for unstructured-text /
-       * unstructured-binary element specs.
-       */
-      readonly witCodec: WitCodec<Schema.Top> | null
-    }
-  | {
-      readonly kind: "multimodal"
-      readonly name: string
-      readonly multimodal: {
-        readonly dataSchema: AgentCommon.DataSchema
-        readonly encode: (value: any) => Effect.Effect<CoreTypes.DataValue, Schema.SchemaError>
-        readonly decode: (
-          dv: CoreTypes.DataValue,
-        ) => Effect.Effect<any, Schema.SchemaError | import("../Element.js").ElementValueKindError>
-      }
-      /**
-       * Element shim used by generic `wireBindings` traversals — the real
-       * encode/decode lives on `multimodal.encode/decode` and consumes the
-       * full `DataValue` (not a single `ElementValue`).
-       */
-      readonly element: ElementCodec<unknown>
-      readonly witCodec: null
-    }
+export interface ParamCodec {
+  readonly name: string
+  readonly codec: WitCodec<Schema.Top>
+}
 
 /**
- * The compiled WIT-side encoding of a single method: per-parameter
- * bindings, the success `WitCodec` (or `null` for unit-returning methods),
- * and the matching Golem `DataSchema`s. Compiled once via
- * {@link compileMethodSpec}, then re-used per call by {@link invokeDataValue}.
+ * The compiled encoding of a single method: per-parameter codecs (in
+ * declaration order) and a unit-or-single output codec. The WIT `input-schema`
+ * / `output-schema` (which reference `type-node-index`es into the agent's
+ * shared `schema-graph`) are built later in `agent.ts` via a `GraphEncoder`.
+ * Compiled once via {@link compileMethodSpec}, reused per call by
+ * {@link invokeSchemaValue}.
  *
- * @since 1.5.0
+ * @since 1.6.0
  * @category models
  */
 export interface MethodCodec<
@@ -592,45 +569,29 @@ export interface MethodCodec<
 > {
   readonly name: string
   readonly spec: MethodSpec<Params, Success, Error>
-  /** Internal binding list; wire bindings expose their `WitCodec`/`ElementCodec`. */
-  readonly bindings: ReadonlyArray<ParamBinding>
-  /** Backwards-compatible view of `wire` bindings for existing callers. */
-  readonly inputCodecs: ReadonlyArray<{
-    readonly name: string
-    readonly codec: WitCodec<Schema.Top>
-  }>
+  /** Per-parameter codecs in declaration order (drives the input record order). */
+  readonly inputCodecs: ReadonlyArray<ParamCodec>
   /**
-   * The wit-codec for the method's wire response. When
-   * {@link errorWrapped} is `false`, this is the codec for `Success`
-   * (or `null` if the method returns void). When `errorWrapped` is
-   * `true`, this is the codec for `Result<Success, Error>` and is
-   * always non-null — the result wrapper carries the error tag even
-   * when `Success` is `Schema.Void`.
+   * The method's wire response: `unit` for a void, unfailable return;
+   * otherwise a single `WitCodec`. When {@link errorWrapped} is `true` the
+   * codec is for `Result<Success, Error>` (the wrapper carries the error tag
+   * even when `Success` is `Schema.Void`).
    */
-  readonly outputCodec: WitCodec<Schema.Top> | null
+  readonly output:
+    | { readonly tag: "unit" }
+    | { readonly tag: "single"; readonly codec: WitCodec<Schema.Top> }
   /**
-   * Element codec for the method's wire response, paired with
-   * {@link outputCodec}. Decoded value is `Success["Type"]` when
-   * {@link errorWrapped} is `false`, or
-   * `Result.Result<Success["Type"], Error["Type"]>` when `true`.
-   */
-  readonly outputElement: ElementCodec<unknown> | null
-  /**
-   * `true` when the method declares a non-Void typed `error`; the
-   * wire response is folded into a component-model `result<S, E>`.
-   * `false` for the default unfailable case (back-compat).
+   * `true` when the method declares a non-Void typed `error`; the wire
+   * response is folded into a `result<S, E>`. `AgentError` is reserved for
+   * host/SDK-level conditions, not user-domain errors.
    */
   readonly errorWrapped: boolean
   /**
-   * `true` when `spec.success` is `Schema.Void`. Together with
-   * {@link errorWrapped}: if both are `true`, the wire `result<_, E>`
-   * uses an empty-record stand-in for the success arm (component model
-   * lacks a free-standing unit type), and the SDK substitutes
-   * `undefined` ↔ `{}` automatically.
+   * `true` when `spec.success` is `Schema.Void`. With `errorWrapped`, the wire
+   * `result<_, E>` uses an empty-record stand-in for the success arm, and the
+   * SDK substitutes `undefined` ↔ `{}` automatically.
    */
   readonly successVoid: boolean
-  readonly inputSchema: AgentCommon.DataSchema
-  readonly outputSchema: AgentCommon.DataSchema
 }
 
 /** Detect a unit / `Schema.Void` return type. */
@@ -644,36 +605,23 @@ const isVoidSchema = (s: Schema.Top): boolean => s.ast._tag === "Void"
  * @since 1.5.0
  * @category codecs
  */
-export const compileParamBindings = (
+export const compileParamCodecs = (
   context: string,
   params: MethodParams,
-): Effect.Effect<ReadonlyArray<ParamBinding>, UnsupportedSchemaError> =>
+): Effect.Effect<ReadonlyArray<ParamCodec>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
-    const bindings: Array<ParamBinding> = []
+    const codecs: Array<ParamCodec> = []
     for (const [paramName, param] of Object.entries(params)) {
-      if (isMultimodal(param)) {
+      if (isMultimodal(param) || isElementSpec(param)) {
         return yield* Effect.fail<UnsupportedSchemaError>({
           _tag: "UnsupportedSchemaError",
-          reason: `${context}: multimodal parameter '${paramName}' is only allowed as a method's sole parameter`,
+          reason: `${context}: multimodal/unstructured parameter '${paramName}' is not yet supported on the new schema model`,
         } as UnsupportedSchemaError)
       }
-      if (isElementSpec(param)) {
-        bindings.push({
-          kind: "wire",
-          name: paramName,
-          element: param.element as ElementCodec<unknown>,
-          witCodec: null,
-        })
-      } else {
-        const witCodec = yield* toWitCodec(param as Schema.Top)
-        const element = componentModelElement(
-          witCodec,
-          `${context}: argument ${paramName}`,
-        ) as ElementCodec<unknown>
-        bindings.push({ kind: "wire", name: paramName, element, witCodec })
-      }
+      const codec = (yield* toWitCodec(param as Schema.Top)) as WitCodec<Schema.Top>
+      codecs.push({ name: paramName, codec })
     }
-    return bindings
+    return codecs
   })
 
 /**
@@ -691,124 +639,35 @@ export const compileMethodSpec = <
   spec: MethodSpec<Params, Success, Error>,
 ): Effect.Effect<MethodCodec<Params, Success, Error>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
-    const paramEntries = Object.entries(spec.params)
-
-    // When the method declares a non-Void typed error, fold success and
-    // error into a single component-model `result<S, E>` carried by the
-    // same single-element output tuple. AgentError is reserved for
-    // host/SDK-level conditions (invalid-input, etc.) and is not used
-    // to transport user-domain errors.
     const errorWrapped = !isVoidSchema(spec.error)
     const successVoid = isVoidSchema(spec.success)
-    // Component model has no free-standing unit type; substitute an
-    // empty record for the success arm of `result<_, E>` when the
-    // method's success is `Schema.Void`. The SDK transparently
-    // substitutes `undefined` ↔ `{}` on encode/decode (see
-    // `runHandlerAndEncode` server-side and `buildRemoteMethod`
-    // client-side).
+    // When the method declares a non-Void typed error, fold success+error into
+    // a single `result<S, E>` (the only channel for user-typed errors;
+    // `AgentError` is reserved for host/SDK-level conditions). The schema model
+    // has no free-standing unit type, so a void success uses an empty-record
+    // stand-in and the SDK substitutes `undefined` ↔ `{}` on encode/decode.
     const responseSchema: Schema.Top = errorWrapped
       ? (Schema.Result(
           successVoid ? (Schema.Struct({}) as Schema.Top) : spec.success,
           spec.error,
         ) as unknown as Schema.Top)
       : spec.success
-
-    const outputCodec: WitCodec<Schema.Top> | null =
+    const output: MethodCodec<Params, Success, Error>["output"] =
       !errorWrapped && successVoid
-        ? null
-        : ((yield* toWitCodec(responseSchema)) as WitCodec<Schema.Top>)
-    const outputElement: ElementCodec<unknown> | null =
-      outputCodec === null
-        ? null
-        : (componentModelElement(outputCodec, `${name}: return value`) as ElementCodec<unknown>)
-    const outputSchema: AgentCommon.DataSchema =
-      outputElement === null
-        ? { tag: "tuple", val: [] }
-        : { tag: "tuple", val: [["", outputElement.elementSchema]] }
+        ? { tag: "unit" }
+        : { tag: "single", codec: (yield* toWitCodec(responseSchema)) as WitCodec<Schema.Top> }
 
-    // Multimodal: must be the sole parameter; produces `DataSchema.multimodal`.
-    const multimodalEntry = paramEntries.find(([, v]) => isMultimodal(v))
-    if (multimodalEntry !== undefined) {
-      if (paramEntries.length !== 1) {
-        return yield* Effect.fail<UnsupportedSchemaError>({
-          _tag: "UnsupportedSchemaError",
-          reason: `${name}: multimodal parameters must be the sole parameter (found ${paramEntries.length})`,
-        } as UnsupportedSchemaError)
-      }
-      const [paramName, mm] = multimodalEntry as [string, Multimodal<MultimodalShape>]
-      const compiled = yield* mm.compile()
-      const element: ElementCodec<unknown> = {
-        // The element-schema slot for a multimodal binding is a synthetic
-        // marker — actual encoding/decoding goes through the binding's
-        // own `multimodal.encode/decode` paths in `invokeDataValue` and
-        // the client. We store the inner shape as a component-model nil
-        // here so generic `wireBindings.map(...)` callers don't crash;
-        // the live `bindings` array exposes the multimodal compiled
-        // bundle separately.
-        elementSchema: {
-          tag: "component-model",
-          val: { nodes: [{ type: { tag: "prim-bool-type" } }] },
-        } as AgentCommon.ElementSchema,
-        encode: () =>
-          Effect.die(new Error("multimodal binding encoded via element shim; should not happen")),
-        decode: () =>
-          Effect.die(new Error("multimodal binding decoded via element shim; should not happen")),
-      }
-      const bindings: Array<ParamBinding> = [
-        {
-          kind: "multimodal",
-          name: paramName,
-          multimodal: compiled,
-          // Carry the same element shim so generic `wireBindings.map(...)`
-          // codepaths still see something — they intentionally skip
-          // multimodal kinds via the `kind` filter.
-          element,
-          witCodec: null,
-        },
-      ]
-      const inputSchema = compiled.dataSchema
-      return {
-        name,
-        spec,
-        bindings,
-        inputCodecs: [],
-        outputCodec,
-        outputElement,
-        errorWrapped,
-        successVoid,
-        inputSchema,
-        outputSchema,
-      }
+    // Multimodal params are rejected pending the Phase 5 redesign onto
+    // `text`/`binary` schema types.
+    if (Object.entries(spec.params).some(([, p]) => isMultimodal(p))) {
+      return yield* Effect.fail<UnsupportedSchemaError>({
+        _tag: "UnsupportedSchemaError",
+        reason: `${name}: multimodal parameters are not yet supported on the new schema model`,
+      } as UnsupportedSchemaError)
     }
 
-    const bindings = (yield* compileParamBindings(name, spec.params)) as Array<ParamBinding>
-
-    // Wire bindings always populate `inputSchema.tuple`.
-    const wireBindings = bindings.filter(
-      (b): b is Extract<ParamBinding, { kind: "wire" }> => b.kind === "wire",
-    )
-    // Filtered view of `bindings`: only wire bindings whose element is a
-    // `component-model` (i.e. backed by a `WitCodec`).
-    const inputCodecs = wireBindings
-      .filter((b): b is typeof b & { witCodec: WitCodec<Schema.Top> } => b.witCodec !== null)
-      .map(({ name: n, witCodec }) => ({ name: n, codec: witCodec }))
-    const inputSchema: AgentCommon.DataSchema = {
-      tag: "tuple",
-      val: wireBindings.map((b) => [b.name, b.element.elementSchema]),
-    }
-
-    return {
-      name,
-      spec,
-      bindings,
-      inputCodecs,
-      outputCodec,
-      outputElement,
-      errorWrapped,
-      successVoid,
-      inputSchema,
-      outputSchema,
-    }
+    const inputCodecs = yield* compileParamCodecs(name, spec.params)
+    return { name, spec, inputCodecs, output, errorWrapped, successVoid }
   })
 
 /**
@@ -869,65 +728,60 @@ const runHandlerAndEncode = <
   handler: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>,
   decoded: MethodInput<Params>,
 ): Effect.Effect<
-  CoreTypes.DataValue,
+  SchemaValueTree | undefined,
   Error["Type"] | Schema.SchemaError | InvalidDataValueError,
   R
 > =>
   Effect.gen(function* () {
     if (mc.errorWrapped) {
-      // outputElement is always non-null when errorWrapped is true
-      // (Result<S,E> is not Void even if S is Void — it uses an empty
-      // record stand-in for the success arm).
+      // `output` is always `single` when errorWrapped (Result<S,E> is not unit).
+      const codec = (mc.output as { tag: "single"; codec: WitCodec<Schema.Top> }).codec.codec
       const folded = handler(decoded).pipe(
         Effect.matchEffect({
           onFailure: (e: Error["Type"]) =>
             Effect.succeed(Result.fail(e) as Result.Result<unknown, Error["Type"]>),
           onSuccess: (s: Success["Type"]) =>
-            // When success is `Schema.Void`, substitute `{}` for the
-            // void value so it round-trips through the empty-record
-            // stand-in compiled into `Schema.Result(Schema.Struct({}),
-            // error)`.
+            // Substitute `{}` for a void success so it round-trips through the
+            // empty-record stand-in compiled into `Schema.Result(Schema.Struct({}), error)`.
             Effect.succeed(
               Result.succeed(mc.successVoid ? {} : s) as Result.Result<unknown, Error["Type"]>,
             ),
         }),
       )
       const result = yield* folded
-      const ev = yield* mc.outputElement!.encode(result)
-      return { tag: "tuple", val: [ev] } as CoreTypes.DataValue
+      const sv = yield* Schema.encodeEffect(codec as Schema.Codec<any, SchemaValue, never, never>)(
+        result,
+      )
+      return schemaValueToWit(sv)
     }
     const result = yield* handler(decoded)
-    if (mc.outputElement === null) {
-      return { tag: "tuple", val: [] } as CoreTypes.DataValue
-    }
-    const ev = yield* mc.outputElement.encode(result)
-    return { tag: "tuple", val: [ev] } as CoreTypes.DataValue
+    if (mc.output.tag === "unit") return undefined
+    const sv = yield* Schema.encodeEffect(
+      mc.output.codec.codec as Schema.Codec<any, SchemaValue, never, never>,
+    )(result)
+    return schemaValueToWit(sv)
   }) as Effect.Effect<
-    CoreTypes.DataValue,
+    SchemaValueTree | undefined,
     Error["Type"] | Schema.SchemaError | InvalidDataValueError,
     R
   >
 
 /**
- * Invoke a compiled method using a Golem `DataValue` as input and producing
- * a Golem `DataValue` as output. The actual implementation is provided
- * separately as `handler` so the same compiled codec can be paired with
- * different per-instance closures (which is how agents work).
+ * Invoke a compiled method using a `schema-value-tree` as input and producing
+ * an optional `schema-value-tree` as output (`undefined` for a unit return).
+ * The handler is provided separately so the same compiled codec can be paired
+ * with different per-instance closures (which is how agents work).
  *
- * - Input must be the `tuple` variant whose elements line up positionally
- *   with the declared parameters; each element must be the
- *   `component-model` variant carrying a `WitValue`.
- * - Output is the `tuple` variant, with 0 elements for a unit return type
- *   and 1 element otherwise. When the method declares a non-Void typed
- *   error, the single output element is a component-model `result<S, E>`
- *   carrying either the success value or the typed failure (this is the
- *   ONLY channel for user-typed errors; `AgentError` is reserved for
- *   host/SDK-level conditions).
+ * Input is the `record` value whose fields line up positionally with the
+ * declared parameters. When the method declares a non-Void typed error, the
+ * output value is a `result<S, E>` carrying either the success value or the
+ * typed failure (the ONLY channel for user-typed errors; `AgentError` is
+ * reserved for host/SDK-level conditions).
  *
- * @since 1.5.0
+ * @since 1.6.0
  * @category operations
  */
-export const invokeDataValue = <
+export const invokeSchemaValue = <
   Params extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
@@ -935,63 +789,39 @@ export const invokeDataValue = <
 >(
   mc: MethodCodec<Params, Success, Error>,
   handler: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>,
-  input: CoreTypes.DataValue,
+  input: SchemaValueTree,
 ): Effect.Effect<
-  CoreTypes.DataValue,
+  SchemaValueTree | undefined,
   Error["Type"] | Schema.SchemaError | InvalidDataValueError,
   R
 > =>
   Effect.gen(function* () {
-    // Multimodal sole-parameter case: the entire DataValue is the
-    // multimodal payload, not a tuple wrapping it.
-    const multimodalBinding = mc.bindings.find(
-      (b): b is Extract<ParamBinding, { kind: "multimodal" }> => b.kind === "multimodal",
-    )
-    if (multimodalBinding !== undefined) {
-      const value = yield* Effect.mapError(multimodalBinding.multimodal.decode(input), (err) =>
-        err instanceof ElementValueKindError
-          ? new InvalidDataValueError(
-              `${mc.name}: multimodal parameter ${multimodalBinding.name} is ${err.actual}, expected ${err.expected}`,
-            )
-          : err,
-      )
-      const decoded = { [multimodalBinding.name]: value } as MethodInput<Params>
-      return yield* runHandlerAndEncode(mc, handler, decoded)
-    }
-
-    if (input.tag !== "tuple") {
-      return yield* Effect.fail(
-        new InvalidDataValueError(`${mc.name}: expected tuple DataValue, got ${input.tag}`),
-      )
-    }
-
-    const wireBindings = mc.bindings.filter(
-      (b): b is Extract<ParamBinding, { kind: "wire" }> => b.kind === "wire",
-    )
-    if (input.val.length !== wireBindings.length) {
-      return yield* Effect.fail(
-        new InvalidDataValueError(
-          `${mc.name}: expected ${wireBindings.length} arguments, got ${input.val.length}`,
-        ),
-      )
-    }
-
     const decoded: Record<string, unknown> = {}
-    for (let i = 0; i < wireBindings.length; i++) {
-      const b = wireBindings[i]!
-      const ev = input.val[i]!
-      decoded[b.name] = yield* Effect.mapError(b.element.decode(ev), (err) =>
-        err instanceof ElementValueKindError
-          ? new InvalidDataValueError(
-              `${mc.name}: argument ${i} (${b.name}) is ${err.actual}, expected ${err.expected}`,
-            )
-          : err,
-      )
+    if (mc.inputCodecs.length > 0) {
+      const sv = schemaValueFromWit(input)
+      if (sv.tag !== "record") {
+        return yield* Effect.fail(
+          new InvalidDataValueError(`${mc.name}: expected a record input value, got ${sv.tag}`),
+        )
+      }
+      const fields = sv.fields
+      if (fields.length !== mc.inputCodecs.length) {
+        return yield* Effect.fail(
+          new InvalidDataValueError(
+            `${mc.name}: expected ${mc.inputCodecs.length} arguments, got ${fields.length}`,
+          ),
+        )
+      }
+      for (let i = 0; i < mc.inputCodecs.length; i++) {
+        const ic = mc.inputCodecs[i]!
+        decoded[ic.name] = yield* Schema.decodeEffect(
+          ic.codec.codec as Schema.Codec<any, SchemaValue, never, never>,
+        )(fields[i]!)
+      }
     }
-
     return yield* runHandlerAndEncode(mc, handler, decoded as MethodInput<Params>)
   }) as Effect.Effect<
-    CoreTypes.DataValue,
+    SchemaValueTree | undefined,
     Error["Type"] | Schema.SchemaError | InvalidDataValueError,
     R
   >
