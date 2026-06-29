@@ -61,8 +61,13 @@
  * @since 1.5.0
  */
 import { Cause, Effect, Exit, Result, Schema } from "effect"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
 import type * as DurabilityHost from "golem:durability/durability@1.5.0"
+import {
+  typedSchemaValueFromWit,
+  typedSchemaValueToWit,
+  type SchemaValue,
+} from "./schema-model/index.js"
 import {
   DurabilityHostError,
   PersistenceLevel,
@@ -334,8 +339,8 @@ export const isLive: Effect.Effect<boolean, DurabilityHostError, DurabilityClien
  */
 export const persistDurableFunctionInvocation = (
   functionName: string,
-  request: CoreTypes.ValueAndType,
-  response: CoreTypes.ValueAndType,
+  request: CoreTypes.TypedSchemaValue,
+  response: CoreTypes.TypedSchemaValue,
   functionType: DurableFunctionType,
 ): Effect.Effect<void, DurabilityHostError, DurabilityClient> =>
   Effect.gen(function* () {
@@ -425,26 +430,24 @@ const valueAndTypeOf = <S extends Schema.Top>(
   wc: WitCodec<S>,
   value: S["Type"],
   phase: "request-encode" | "response-encode",
-): Effect.Effect<CoreTypes.ValueAndType, DurabilityDecodeError, S["EncodingServices"]> =>
+): Effect.Effect<CoreTypes.TypedSchemaValue, DurabilityDecodeError, S["EncodingServices"]> =>
   (
-    Schema.encodeEffect(wc.codec)(value) as Effect.Effect<
-      CoreTypes.WitValue,
-      unknown,
-      S["EncodingServices"]
-    >
+    Schema.encodeEffect(wc.codec)(value) as Effect.Effect<SchemaValue, unknown, S["EncodingServices"]>
   ).pipe(
     Effect.mapBoth({
       onFailure: (cause) => new DurabilityDecodeError(phase, cause),
-      onSuccess: (wv) => ({ value: wv, typ: wc.witType }) as CoreTypes.ValueAndType,
+      // The durable invocation carries a self-contained `typed-schema-value`
+      // (the codec's graph + the encoded value).
+      onSuccess: (sv) => typedSchemaValueToWit({ graph: wc.graph, value: sv }),
     }),
   )
 
 const decodeWitValue = <S extends Schema.Top>(
   wc: WitCodec<S>,
-  vt: CoreTypes.ValueAndType,
+  vt: CoreTypes.TypedSchemaValue,
 ): Effect.Effect<S["Type"], DurabilityDecodeError, S["DecodingServices"]> =>
   (
-    Schema.decodeEffect(wc.codec)(vt.value) as Effect.Effect<
+    Schema.decodeEffect(wc.codec)(typedSchemaValueFromWit(vt).value) as Effect.Effect<
       S["Type"],
       unknown,
       S["DecodingServices"]
@@ -651,7 +654,7 @@ interface ProtocolInput<SuccessS extends Schema.Top, ErrorS extends Schema.Top, 
   readonly functionType: UnaryDurableFunctionType
   readonly forcedCommit: boolean
   /** Pre-encoded request `ValueAndType`, computed before the body runs. */
-  readonly reqVT: CoreTypes.ValueAndType
+  readonly reqVT: CoreTypes.TypedSchemaValue
   readonly responseWc: WitCodec<Schema.Top>
   readonly hasError: boolean
   readonly body: Effect.Effect<SuccessS["Type"], ErrorS["Type"], R>

@@ -64,7 +64,13 @@ import {
 import { isElementSpec } from "../Unstructured.js"
 import { type UnsupportedSchemaError, type WitCodec } from "../WitCodec.js"
 import { clientFor, type AgentClient } from "../Client.js"
-import type { CompiledConfig, ConfigClass, ConfigFields, ConfigShape } from "../Config.js"
+import type {
+  CompiledConfig,
+  ConfigClass,
+  ConfigDeclaration,
+  ConfigFields,
+  ConfigShape,
+} from "../Config.js"
 import * as GolemLogging from "../Logging.js"
 import * as GolemTracing from "../Tracing.js"
 
@@ -711,11 +717,11 @@ export const registerAgent = <
     })
 
     let compiledConfig: CompiledConfig | null = null
-    let configDeclarations: Array<AgentCommon.AgentConfigDeclaration> = []
+    let configRaw: ReadonlyArray<ConfigDeclaration> = []
     if (metadata.config !== undefined) {
       const cc = yield* metadata.config.__compile()
       compiledConfig = cc
-      configDeclarations = [...cc.declarations]
+      configRaw = cc.declarations
     }
 
     let compiledSnapshot: CompiledSnapshot | null = null
@@ -736,6 +742,7 @@ export const registerAgent = <
       for (const ic of mc.inputCodecs) graphs.push(ic.codec.graph)
       if (mc.output.tag === "single") graphs.push(mc.output.codec.graph)
     }
+    for (const d of configRaw) graphs.push(d.graph)
     const encoder = new GraphEncoder(mergeGraphDefs(graphs))
     const encodeInput = (codecs: ReadonlyArray<ParamCodec>): AgentCommon.InputSchema => ({
       tag: "parameters",
@@ -765,6 +772,13 @@ export const registerAgent = <
         outputSchema,
       })
     }
+
+    // Config value-types resolve to `type-node-index`es into the same shared pool.
+    const configDeclarations: Array<AgentCommon.AgentConfigDeclaration> = configRaw.map((d) => ({
+      source: d.source,
+      path: [...d.path],
+      valueType: encoder.encodeType(d.graph.root),
+    }))
 
     const agentType: AgentCommon.AgentType = {
       typeName: metadata.name,

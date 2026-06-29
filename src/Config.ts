@@ -9,12 +9,27 @@
  */
 
 import { Context, Effect, Redacted, Schema, SchemaAST } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
 import { ConfigClient } from "./host/ConfigClient.js"
 import { toWitCodec, UnsupportedSchemaError, type WitCodec } from "./WitCodec.js"
+import {
+  schemaGraphToWit,
+  schemaValueFromWit,
+  typedSchemaValueToWit,
+  type SchemaGraph,
+  type SchemaValue,
+} from "./internal/schema-model/index.js"
 
-type WitValue = CoreTypes.WitValue
+/**
+ * A config leaf's declaration in its "raw" form: the value-type is carried as a
+ * self-contained {@link SchemaGraph} and only flattened into a `type-node-index`
+ * when `agent.ts` assembles the agent's shared `schema-graph` pool.
+ */
+export interface ConfigDeclaration {
+  readonly source: AgentCommon.AgentConfigSource
+  readonly path: ReadonlyArray<string>
+  readonly graph: SchemaGraph
+}
 
 /**
  * A typed config-fetching failure surfaced through the {@link ConfigError}
@@ -111,7 +126,7 @@ interface ConfigLeaf {
  * @category models
  */
 export interface CompiledConfig {
-  readonly declarations: ReadonlyArray<AgentCommon.AgentConfigDeclaration>
+  readonly declarations: ReadonlyArray<ConfigDeclaration>
   readonly leaves: ReadonlyArray<ConfigLeaf>
   /** Lookup by `path.join("/")` for runtime override encoding/validation. */
   readonly leavesByPath: ReadonlyMap<string, ConfigLeaf>
@@ -239,10 +254,10 @@ export const compileConfig = (
       seenPaths.add(key)
     }
 
-    const declarations: Array<AgentCommon.AgentConfigDeclaration> = leaves.map((leaf) => ({
+    const declarations: Array<ConfigDeclaration> = leaves.map((leaf) => ({
       source: leaf.source,
       path: [...leaf.path],
-      valueType: leaf.witCodec.witType,
+      graph: leaf.witCodec.graph,
     }))
     const leavesByPath = new Map<string, ConfigLeaf>(
       leaves.map((leaf) => [leaf.path.join("/"), leaf] as const),
@@ -294,13 +309,13 @@ export const compileConfig = (
         for (const leaf of leaves) {
           const fetch: Effect.Effect<unknown, ConfigError> = Effect.gen(function* () {
             const wv = yield* Effect.try({
-              try: () => cfg.getConfigValue(leaf.path, leaf.witCodec.witType),
+              try: () => cfg.getConfigValue(leaf.path, schemaGraphToWit(leaf.witCodec.graph)),
               catch: (cause) => new ConfigError(leaf.path, { _tag: "HostTrap", cause }),
             })
             const decoded = yield* Effect.mapError(
               Schema.decodeEffect(
-                leaf.witCodec.codec as Schema.Codec<unknown, WitValue, never, never>,
-              )(wv) as Effect.Effect<unknown, Schema.SchemaError>,
+                leaf.witCodec.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+              )(schemaValueFromWit(wv)) as Effect.Effect<unknown, Schema.SchemaError>,
               (cause) =>
                 new ConfigError(leaf.path, {
                   _tag: "DecodeFailure",
@@ -522,12 +537,12 @@ export const encodeOverrides = (
           )
         }
 
-        const wv = yield* Schema.encodeEffect(
-          leaf.witCodec.codec as Schema.Codec<unknown, WitValue, never, never>,
-        )(value) as Effect.Effect<WitValue, Schema.SchemaError>
+        const sv = yield* Schema.encodeEffect(
+          leaf.witCodec.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+        )(value) as Effect.Effect<SchemaValue, Schema.SchemaError>
         out.push({
           path: [...leaf.path],
-          value: { value: wv, typ: leaf.witCodec.witType },
+          value: typedSchemaValueToWit({ graph: leaf.witCodec.graph, value: sv }),
         })
       })
 

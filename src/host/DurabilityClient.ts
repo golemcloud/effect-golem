@@ -11,7 +11,7 @@
  * @internal — not re-exported from `src/index.ts`.
  */
 import { Context, Layer } from "effect"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
 import * as DurabilityHost from "golem:durability/durability@1.5.0"
 
 export interface DurabilityClientShape {
@@ -32,8 +32,8 @@ export interface DurabilityClientShape {
   /** Mirrors `golem:durability/durability.persist-durable-function-invocation`. */
   readonly persistDurableFunctionInvocation: (
     functionName: string,
-    request: CoreTypes.ValueAndType,
-    response: CoreTypes.ValueAndType,
+    request: CoreTypes.TypedSchemaValue,
+    response: CoreTypes.TypedSchemaValue,
     functionType: DurabilityHost.DurableFunctionType,
   ) => void
   /** Mirrors `golem:durability/durability.read-persisted-durable-function-invocation`. */
