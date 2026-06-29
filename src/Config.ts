@@ -10,6 +10,8 @@
 
 import { Context, Effect, Redacted, Schema, SchemaAST } from "effect"
 import type * as AgentCommon from "golem:agent/common@2.0.0"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
+import { reveal } from "golem:secrets/reveal@0.1.0"
 import { ConfigClient } from "./host/ConfigClient.js"
 import { toWitCodec, UnsupportedSchemaError, type WitCodec } from "./WitCodec.js"
 import {
@@ -321,10 +323,36 @@ export const compileConfig = (
               try: () => cfg.getConfigValue(leaf.path, schemaGraphToWit(leaf.witCodec.graph)),
               catch: (cause) => new ConfigError(leaf.path, { _tag: "HostTrap", cause }),
             })
+            // A secret leaf's declared value type is `secret<inner>`: the host
+            // returns an opaque secret handle, not the plaintext. Reveal it
+            // (capability-gated via `golem:secrets/reveal`) against the inner-type
+            // graph to obtain the inner value tree, which the inner codec decodes.
+            // Local leaves decode the returned value tree directly.
+            const valueTree = yield* Effect.try({
+              try: () => {
+                if (leaf.source !== "secret") return wv
+                const sv = schemaValueFromWit(wv) as { tag: string; handle?: any }
+                if (sv.tag !== "secret" || sv.handle === undefined) {
+                  throw new Error(
+                    `expected a secret config value at '${leaf.path.join(".")}', got '${sv.tag}'`,
+                  )
+                }
+                const innerRoot = (leaf.witCodec.graph.root as any).body.inner
+                const innerGraph: SchemaGraph = { ...leaf.witCodec.graph, root: innerRoot }
+                const revealed: SchemaValueTree | undefined = sv.handle.withHandle(
+                  (raw: any) => reveal(raw, schemaGraphToWit(innerGraph)),
+                )
+                if (revealed === undefined) {
+                  throw new Error(`secret handle already consumed at '${leaf.path.join(".")}'`)
+                }
+                return revealed
+              },
+              catch: (cause) => new ConfigError(leaf.path, { _tag: "HostTrap", cause }),
+            })
             const decoded = yield* Effect.mapError(
               Schema.decodeEffect(
                 leaf.witCodec.codec as Schema.Codec<unknown, SchemaValue, never, never>,
-              )(schemaValueFromWit(wv)) as Effect.Effect<unknown, Schema.SchemaError>,
+              )(schemaValueFromWit(valueTree)) as Effect.Effect<unknown, Schema.SchemaError>,
               (cause) =>
                 new ConfigError(leaf.path, {
                   _tag: "DecodeFailure",
