@@ -2,23 +2,33 @@
  * @since 1.5.0
  */
 import { Effect, Schema } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
-import { componentModelElement, ElementValueKindError, type ElementCodec } from "./Element.js"
+import type { Role } from "golem:core/types@2.0.0"
+import {
+  emptyMetadata,
+  t,
+  v,
+  variantCase,
+  type SchemaType,
+  type SchemaValue,
+  type VariantCaseType,
+} from "./internal/schema-model/model.js"
 import {
   isElementSpec,
+  tryGetter,
   UnstructuredBinary,
   UnstructuredText,
   type BinaryReferenceValue,
   type ElementSpec,
   type TextReferenceValue,
 } from "./Unstructured.js"
-import { toWitCodec, type UnsupportedSchemaError } from "./WitCodec.js"
+import { toWitCodec, type UnsupportedSchemaError, type WitCodec } from "./WitCodec.js"
+
+const MULTIMODAL_ROLE: Role = { tag: "multimodal" }
 
 /**
  * One named element of a multimodal payload — either an
  * {@link ElementSpec} (unstructured-text/binary) or a regular
- * `Schema.Top` (compiled to a `component-model` element).
+ * `Schema.Top` (compiled via {@link toWitCodec}).
  *
  * @since 1.5.0
  * @category models
@@ -53,13 +63,14 @@ export type MultimodalValue<S extends MultimodalShape> = ReadonlyArray<
 >
 
 /**
- * A `Multimodal<S>` is the carrier produced by {@link multimodal}. It
- * lives at the same boundary layer as `ElementSpec`: not a `Schema.Top`,
- * but recognised by the method/agent compiler as a special parameter
- * that maps to a `DataSchema { tag: "multimodal", val: ... }` slot.
+ * A `Multimodal<S>` is the carrier produced by {@link multimodal}. It lives at
+ * the same boundary layer as {@link ElementSpec}: not a `Schema.Top`, but
+ * recognised by the method / agent compiler as a parameter that projects to a
+ * `list<variant>` schema node tagged `role = multimodal`.
  *
- * The carrier captures everything needed to encode/decode multimodal
- * `DataValue.multimodal` payloads to/from a `ReadonlyArray<{_tag, value}>`.
+ * It holds a pre-built {@link WitCodec} whose root is that `list<variant>`. The
+ * value codec maps the domain array (`ReadonlyArray<{ _tag, value }>`) to/from
+ * a `{ tag: "list", elements: [v.variant(caseIndex, payload), …] }` value.
  *
  * @since 1.5.0
  * @category models
@@ -68,34 +79,49 @@ export interface Multimodal<S extends MultimodalShape> {
   readonly _effectGolem: "Multimodal"
   readonly shape: S
   /**
-   * Compile this multimodal carrier to per-case `ElementCodec`s and the
-   * matching `DataSchema.multimodal` payload. Done lazily by
-   * `compileMethodSpec` / `compileParamBindings`.
+   * Compile this multimodal carrier to its `WitCodec`. Done lazily / cached so
+   * the method & agent param compilers share one assembly.
    */
   readonly compile: () => Effect.Effect<
-    {
-      readonly dataSchema: AgentCommon.DataSchema
-      readonly encode: (
-        value: MultimodalValue<S>,
-      ) => Effect.Effect<CoreTypes.DataValue, Schema.SchemaError>
-      readonly decode: (
-        dv: CoreTypes.DataValue,
-      ) => Effect.Effect<MultimodalValue<S>, Schema.SchemaError | ElementValueKindError>
-    },
+    WitCodec<Schema.Schema<MultimodalValue<S>>>,
     UnsupportedSchemaError
   >
+}
+
+/** Per-case synchronous bridge between a domain value and its `SchemaValue`. */
+interface CaseCodec {
+  readonly name: string
+  readonly root: SchemaType
+  readonly toValue: (domain: unknown) => SchemaValue
+  readonly fromValue: (sv: SchemaValue) => unknown
 }
 
 const compileMember = (
   caseName: string,
   member: MultimodalMember,
-): Effect.Effect<ElementCodec<unknown>, UnsupportedSchemaError> =>
+): Effect.Effect<CaseCodec, UnsupportedSchemaError> =>
   Effect.gen(function* () {
     if (isElementSpec(member)) {
-      return member.element as ElementCodec<unknown>
+      return {
+        name: caseName,
+        root: member.root,
+        toValue: member.toValue as (d: unknown) => SchemaValue,
+        fromValue: member.fromValue as (sv: SchemaValue) => unknown,
+      }
     }
     const wc = yield* toWitCodec(member)
-    return componentModelElement(wc, `multimodal[${caseName}]`) as ElementCodec<unknown>
+    const encodeSync = Schema.encodeSync(
+      wc.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+    )
+    const decodeSync = Schema.decodeSync(
+      wc.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+    )
+    return {
+      name: caseName,
+      root: wc.graph.root,
+      toValue: (d) => encodeSync(d),
+      fromValue: (sv) => decodeSync(sv),
+    }
   })
 
 /**
@@ -110,40 +136,13 @@ const compileMember = (
  *   image: UnstructuredBinary(),
  *   meta:  Schema.Struct({ prompt: Schema.String }),
  * })
- *
- * defineAgent({
- *   ...,
- *   methods: {
- *     send: method({
- *       params: { content: Content },         // single multimodal param
- *       success: Schema.String,
- *     }),
- *   },
- *   impl: () => Effect.succeed({
- *     send: ({ content }) =>
- *       // content: ReadonlyArray<
- *       //   | { _tag: "text",  value: TextReference }
- *       //   | { _tag: "image", value: BinaryReference }
- *       //   | { _tag: "meta",  value: { prompt: string } }
- *       // >
- *       Effect.succeed("ok"),
- *   }),
- * })
  * ```
  *
  * @since 1.5.0
  * @category constructors
  */
 export const multimodal = <S extends MultimodalShape>(shape: S): Multimodal<S> => {
-  let cached: {
-    readonly dataSchema: AgentCommon.DataSchema
-    readonly encode: (
-      value: MultimodalValue<S>,
-    ) => Effect.Effect<CoreTypes.DataValue, Schema.SchemaError>
-    readonly decode: (
-      dv: CoreTypes.DataValue,
-    ) => Effect.Effect<MultimodalValue<S>, Schema.SchemaError | ElementValueKindError>
-  } | null = null
+  let cached: WitCodec<Schema.Schema<MultimodalValue<S>>> | null = null
 
   return {
     _effectGolem: "Multimodal",
@@ -152,59 +151,69 @@ export const multimodal = <S extends MultimodalShape>(shape: S): Multimodal<S> =
       Effect.suspend(() => {
         if (cached !== null) return Effect.succeed(cached)
         return Effect.gen(function* () {
-          const entries: Array<[string, ElementCodec<unknown>]> = []
+          const cases: Array<CaseCodec> = []
           for (const [k, m] of Object.entries(shape)) {
-            const ec = yield* compileMember(k, m)
-            entries.push([k, ec])
+            cases.push(yield* compileMember(k, m))
           }
-          const byName = new Map(entries)
-          const dataSchema: AgentCommon.DataSchema = {
-            tag: "multimodal",
-            val: entries.map(([k, ec]) => [k, ec.elementSchema]),
+          const byName = new Map(cases.map((c, i) => [c.name, { c, index: i }] as const))
+
+          const variantCases: Array<VariantCaseType> = cases.map((c) =>
+            variantCase(c.name, c.root),
+          )
+          const variant = t.variant(variantCases)
+          const root: SchemaType = {
+            body: t.list(variant).body,
+            metadata: { ...emptyMetadata(), role: MULTIMODAL_ROLE },
           }
-          const encode = (
-            value: MultimodalValue<S>,
-          ): Effect.Effect<CoreTypes.DataValue, Schema.SchemaError> =>
-            Effect.gen(function* () {
-              const out: Array<[string, CoreTypes.ElementValue]> = []
-              for (const item of value) {
-                const ec = byName.get(item._tag)
-                if (ec === undefined) {
-                  // Unknown _tag: encode as a SchemaError-shaped failure
-                  // by routing through Effect.die so the caller sees a
-                  // clear runtime mismatch.
-                  return yield* Effect.die(new Error(`multimodal: unknown case '${item._tag}'`))
-                }
-                const ev = yield* ec.encode(item.value)
-                out.push([item._tag, ev])
+
+          const toValue = (value: MultimodalValue<S>): SchemaValue => {
+            const elements: Array<SchemaValue> = []
+            for (const item of value) {
+              const entry = byName.get(item._tag)
+              if (entry === undefined) {
+                throw new Error(`multimodal: unknown case '${item._tag}'`)
               }
-              return { tag: "multimodal", val: out } as CoreTypes.DataValue
-            })
-          const decode = (
-            dv: CoreTypes.DataValue,
-          ): Effect.Effect<MultimodalValue<S>, Schema.SchemaError | ElementValueKindError> =>
-            Effect.gen(function* () {
-              if (dv.tag !== "multimodal") {
-                return yield* Effect.fail(
-                  new ElementValueKindError(
-                    "unstructured-text",
-                    dv.tag as CoreTypes.ElementValue["tag"],
-                    "multimodal: expected DataValue.multimodal",
-                  ),
-                )
+              elements.push(v.variant(entry.index, entry.c.toValue(item.value)))
+            }
+            return v.list(elements)
+          }
+
+          const fromValue = (sv: SchemaValue): MultimodalValue<S> => {
+            if (sv.tag !== "list") {
+              throw new Error(`multimodal: expected a list value, got ${sv.tag}`)
+            }
+            const out: Array<{ _tag: string; value: unknown }> = []
+            for (const el of sv.elements) {
+              if (el.tag !== "variant") {
+                throw new Error(`multimodal: expected variant element, got ${el.tag}`)
               }
-              const out: Array<{ _tag: string; value: unknown }> = []
-              for (const [name, ev] of dv.val) {
-                const ec = byName.get(name)
-                if (ec === undefined) {
-                  return yield* Effect.die(new Error(`multimodal: unknown case '${name}'`))
-                }
-                const v = yield* ec.decode(ev)
-                out.push({ _tag: name, value: v })
+              const c = cases[el.caseIndex]
+              if (c === undefined) {
+                throw new Error(`multimodal: unknown case index ${el.caseIndex}`)
               }
-              return out as unknown as MultimodalValue<S>
-            })
-          cached = { dataSchema, encode, decode }
+              if (el.payload === undefined) {
+                throw new Error(`multimodal: missing payload for case '${c.name}'`)
+              }
+              out.push({ _tag: c.name, value: c.fromValue(el.payload) })
+            }
+            return out as unknown as MultimodalValue<S>
+          }
+
+          const SchemaValueCarrier = Schema.declare((_u): _u is SchemaValue => true)
+          const DomainCarrier = Schema.declare((_u): _u is MultimodalValue<S> => true)
+          const codec = SchemaValueCarrier.pipe(
+            Schema.decodeTo(DomainCarrier, {
+              decode: tryGetter((sv: SchemaValue) => fromValue(sv)),
+              encode: tryGetter((d: MultimodalValue<S>) => toValue(d)),
+            }),
+          ) as WitCodec<Schema.Schema<MultimodalValue<S>>>["codec"]
+
+          cached = {
+            schema: DomainCarrier as unknown as Schema.Schema<MultimodalValue<S>>,
+            graph: { defs: new Map(), root },
+            isUnit: false,
+            codec,
+          }
           return cached
         })
       }),
@@ -241,7 +250,7 @@ export const multimodalTextImage = (opts?: {
 
 /**
  * Multimodal payload with arbitrary text + image elements plus a custom
- * component-model schema under a named slot (default: `"custom"`).
+ * schema under a named slot (default: `"custom"`).
  *
  * @since 1.5.0
  * @category constructors

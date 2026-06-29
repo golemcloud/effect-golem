@@ -610,13 +610,23 @@ export const compileParamCodecs = (
   params: MethodParams,
 ): Effect.Effect<ReadonlyArray<ParamCodec>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
+    const paramEntries = Object.entries(params)
+    if (paramEntries.some(([, p]) => isMultimodal(p)) && paramEntries.length > 1) {
+      return yield* Effect.fail<UnsupportedSchemaError>({
+        _tag: "UnsupportedSchemaError",
+        reason: `${context}: a multimodal parameter must be the only parameter`,
+      } as UnsupportedSchemaError)
+    }
     const codecs: Array<ParamCodec> = []
-    for (const [paramName, param] of Object.entries(params)) {
-      if (isMultimodal(param) || isElementSpec(param)) {
-        return yield* Effect.fail<UnsupportedSchemaError>({
-          _tag: "UnsupportedSchemaError",
-          reason: `${context}: multimodal/unstructured parameter '${paramName}' is not yet supported on the new schema model`,
-        } as UnsupportedSchemaError)
+    for (const [paramName, param] of paramEntries) {
+      if (isElementSpec(param)) {
+        codecs.push({ name: paramName, codec: param.witCodec as WitCodec<Schema.Top> })
+        continue
+      }
+      if (isMultimodal(param)) {
+        const codec = (yield* param.compile()) as WitCodec<Schema.Top>
+        codecs.push({ name: paramName, codec })
+        continue
       }
       const codec = (yield* toWitCodec(param as Schema.Top)) as WitCodec<Schema.Top>
       codecs.push({ name: paramName, codec })
@@ -657,15 +667,9 @@ export const compileMethodSpec = <
         ? { tag: "unit" }
         : { tag: "single", codec: (yield* toWitCodec(responseSchema)) as WitCodec<Schema.Top> }
 
-    // Multimodal params are rejected pending the Phase 5 redesign onto
-    // `text`/`binary` schema types.
-    if (Object.entries(spec.params).some(([, p]) => isMultimodal(p))) {
-      return yield* Effect.fail<UnsupportedSchemaError>({
-        _tag: "UnsupportedSchemaError",
-        reason: `${name}: multimodal parameters are not yet supported on the new schema model`,
-      } as UnsupportedSchemaError)
-    }
-
+    // A multimodal parameter projects to a `list<variant>` schema node and is
+    // only valid as the SOLE parameter of a method/constructor — enforced
+    // inside `compileParamCodecs`.
     const inputCodecs = yield* compileParamCodecs(name, spec.params)
     return { name, spec, inputCodecs, output, errorWrapped, successVoid }
   })
