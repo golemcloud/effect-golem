@@ -191,6 +191,21 @@ export type WitTypedArrayKind =
   | "big-i64"
   | "big-u64"
 
+/**
+ * Annotation key marking a schema as the opaque `quota-token` capability
+ * node. Schemas carrying this annotation are compiled by the codec to the
+ * schema-model `quota-token` type (`t.quotaToken`) and their values bridge the
+ * host `QuotaToken` (an owned `own<quota-token>` resource) to/from a
+ * `v.quotaToken(handle)` schema value.
+ *
+ * Unlike the numeric / typed-array hints there is no payload — the presence of
+ * the key alone selects the quota-token shape.
+ *
+ * @since 1.5.0
+ * @category utils
+ */
+export const witQuotaTokenAnnotationKey = "effect-golem/witQuotaToken"
+
 const typedArraySchema = <T>(kind: WitTypedArrayKind, ctor: new (...args: any[]) => T) =>
   Schema.declare((u): u is T => u instanceof ctor).pipe(
     Schema.annotate({ [witTypedArrayAnnotationKey]: kind }),

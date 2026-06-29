@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Fiber, Layer, Schema } from "effect"
 import * as Quota from "../src/Quota.js"
-import { QuotaToken as QuotaTokenSchema, QuotaTokenRecord } from "../src/Quota.js"
+import { QuotaToken as QuotaTokenSchema } from "../src/Quota.js"
 import { QuotaClient, QuotaLive } from "../src/host/QuotaClient.js"
 import { toWitCodec } from "../src/WitCodec.js"
 import * as QuotaHost from "golem:quota/types@1.5.0"
-import { QuotaToken } from "golem:quota/types@1.5.0"
 import * as QuotaMock from "./mocks/golem-quota-types.js"
+
+// In the `golem:core/types@2.0.0` model the host `QuotaToken` is an opaque,
+// affine owned resource. In tests `golem:quota/types@1.5.0` is aliased to the
+// mock, whose `QuotaToken` carrier is what `acquireQuotaToken` constructs —
+// reference it directly for `instanceof` checks (the `.d.ts` exports the token
+// only as a type).
+const QuotaToken = QuotaMock.QuotaToken
 
 /**
  * Default Layer-based stub for {@link QuotaClient} used by the
@@ -18,68 +24,29 @@ import * as QuotaMock from "./mocks/golem-quota-types.js"
  */
 const QuotaTestLive: Layer.Layer<QuotaClient> = QuotaLive
 
-const sample = {
-  environmentId: { uuid: { highBits: 1n, lowBits: 2n } },
-  resourceName: "cpu",
-  expectedUse: 100n,
-  lastCredit: 50n,
-  lastCreditAt: { seconds: 1_700_000_000n, nanoseconds: 123 },
-}
-
 describe("QuotaToken schema", () => {
-  it.effect("encodes a QuotaToken instance to its record shape", () =>
-    Effect.gen(function* () {
-      const token = QuotaToken.fromRecord(sample)
-      const enc = yield* Schema.encodeEffect(QuotaTokenSchema)(token)
-      expect(enc).toEqual(sample)
-    }),
-  )
-
-  it.effect("decodes a record into a QuotaToken instance", () =>
-    Effect.gen(function* () {
-      const token = yield* Schema.decodeEffect(QuotaTokenSchema)(sample)
-      expect(token).toBeInstanceOf(QuotaToken)
-      expect(token.toRecord()).toEqual(sample)
-    }),
-  )
-
-  it.effect("compiles to a WIT record with the expected field types", () =>
+  it.effect("compiles to the schema-model quota-token capability node", () =>
     Effect.gen(function* () {
       const wc = yield* toWitCodec(QuotaTokenSchema as any)
-      const root = wc.witType.nodes[0]?.type as any
-      expect(root.tag).toBe("record-type")
-      const fieldNames = root.val.map((p: [string, number]) => p[0])
-      expect(fieldNames).toEqual([
-        "environmentId",
-        "resourceName",
-        "expectedUse",
-        "lastCredit",
-        "lastCreditAt",
-      ])
-
-      // expectedUse must be u64; lastCredit is s64; lastCreditAt.nanoseconds is u32.
-      const find = (name: string) => root.val.find((p: [string, number]) => p[0] === name)[1]
-      expect(wc.witType.nodes[find("expectedUse")]?.type.tag).toBe("prim-u64-type")
-      expect(wc.witType.nodes[find("lastCredit")]?.type.tag).toBe("prim-s64-type")
+      expect(wc.graph.root.body.tag).toBe("quota-token")
     }),
   )
 
-  it.effect("round-trips QuotaToken end-to-end through the WIT codec", () =>
+  it.effect("round-trips a (mock) token end-to-end through the WIT codec", () =>
     Effect.gen(function* () {
       const wc = yield* toWitCodec(QuotaTokenSchema as any)
-      const codec = wc.codec as Schema.Codec<QuotaToken, any, never, never>
-      const token = QuotaToken.fromRecord(sample)
-      const wv = yield* Schema.encodeEffect(codec)(token)
-      const back = yield* Schema.decodeEffect(codec)(wv)
-      expect(back).toBeInstanceOf(QuotaToken)
-      expect(back.toRecord()).toEqual(sample)
-    }),
-  )
+      const codec = wc.codec as Schema.Codec<QuotaHost.QuotaToken, any, never, never>
 
-  it.effect("QuotaTokenRecord schema matches the host record shape", () =>
-    Effect.gen(function* () {
-      const rec = yield* Schema.decodeEffect(QuotaTokenRecord)(sample)
-      expect(rec).toEqual(sample)
+      // A freshly minted host token is lowered to a `quota-token` schema value
+      // carrying an opaque, affine owned handle, then lifted back out.
+      const token = QuotaMock.newToken("cpu", 100n)
+      const sv = yield* Schema.encodeEffect(codec)(token)
+      expect(sv.tag).toBe("quota-token")
+
+      const back = yield* Schema.decodeEffect(codec)(sv)
+      // The owned handle is moved by ownership, so decode yields the same raw
+      // token back out of the take-once cell.
+      expect(back).toBe(token)
     }),
   )
 })
@@ -113,10 +80,10 @@ describe("Quota — operational API", () => {
           acquireQuotaToken: () => {
             throw new Error("manifest does not declare resource")
           },
-          reserve: (t, a) => t.reserve(a),
+          reserve: (t, a) => QuotaHost.reserve(t, a),
           commit: (r, u) => QuotaHost.Reservation.commit(r, u),
-          split: (t, c) => t.split(c),
-          merge: (t, o) => t.merge(o),
+          split: (t, c) => QuotaHost.split(t, c),
+          merge: (t, o) => QuotaHost.merge(t, o),
         }),
       )
       const exit = yield* Effect.exit(

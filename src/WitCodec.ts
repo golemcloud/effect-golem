@@ -18,8 +18,12 @@ import {
   type SchemaValue,
   type VariantCaseType,
 } from "./internal/schema-model/model.js"
+import { GuestQuotaTokenHandle } from "./internal/schema-model/quotaTokenHandle.js"
+import { QUOTA_INTERNAL } from "./internal/schema-model/quotaInternal.js"
+import type { QuotaToken as RawQuotaToken } from "golem:core/types@2.0.0"
 import {
   variantCaseNameAnnotationKey,
+  witQuotaTokenAnnotationKey,
   witTypeAnnotationKey,
   witTypedArrayAnnotationKey,
   type WitNumericKind,
@@ -239,6 +243,35 @@ const declarationConstructorTag = (a: SchemaAST.AST): string | undefined => {
 
 const typedArrayKindOf = (a: SchemaAST.AST): WitTypedArrayKind | undefined =>
   annotationOf<WitTypedArrayKind>(a, witTypedArrayAnnotationKey)
+
+const isQuotaTokenAST = (a: SchemaAST.AST): boolean =>
+  annotationOf<boolean>(a, witQuotaTokenAnnotationKey) === true
+
+/**
+ * Type + value bridge for the opaque `quota-token` capability node. The graph
+ * root is `t.quotaToken({})`; the value pair lowers a host `QuotaToken` (a raw
+ * owned `own<quota-token>` resource) into `v.quotaToken(handle)` and lifts it
+ * back out via `handle.take()`. The take-once cell guarantees the owned handle
+ * is moved exactly once; decoding a value whose handle was already consumed
+ * throws.
+ */
+const quotaTokenNode = (): { type: SchemaType; pair: ValuePair } => ({
+  type: t.quotaToken({}),
+  pair: {
+    toValue: (raw) =>
+      v.quotaToken(GuestQuotaTokenHandle.fromRaw(QUOTA_INTERNAL, raw as RawQuotaToken)),
+    fromValue: (sv) => {
+      const handle = (sv as { handle: GuestQuotaTokenHandle }).handle
+      const raw = handle.take()
+      if (raw === undefined) {
+        throw new Error(
+          "quota-token handle was already consumed; an owned quota-token can only be decoded once",
+        )
+      }
+      return raw
+    },
+  },
+})
 
 /**
  * Per-typed-array element schema-type/value constructors plus an optional
@@ -489,6 +522,12 @@ const walk = (
             return yield* unionNode(a)
 
           case "Declaration": {
+            // The opaque `quota-token` capability is a declared schema marked
+            // with `witQuotaTokenAnnotationKey`; emit the dedicated capability
+            // node rather than treating it as an unknown declared type.
+            if (isQuotaTokenAST(a)) {
+              return quotaTokenNode()
+            }
             // Typed-array hints (Uint8ArraySchema, …) take precedence — emit a
             // dedicated `list<primN>` shape rather than an unknown declared type.
             const tak = typedArrayKindOf(a)
