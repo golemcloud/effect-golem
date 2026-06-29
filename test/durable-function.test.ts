@@ -4,6 +4,8 @@ import * as Durability from "../src/Durability.js"
 import { DurabilityClient, DurabilityLive } from "../src/host/DurabilityClient.js"
 import { DurabilityModeClient, DurabilityModeLive } from "../src/host/DurabilityModeClient.js"
 import { toWitCodec } from "../src/WitCodec.js"
+import { typedSchemaValueToWit } from "../src/internal/schema-model/index.js"
+import type { SchemaValue } from "../src/internal/schema-model/index.js"
 import * as ApiHostMock from "./mocks/golem-api-host.js"
 import * as DurabilityMock from "./mocks/golem-durability.js"
 
@@ -266,8 +268,8 @@ describe("Durability.wrap — replay mode", () => {
     Effect.gen(function* () {
       const wc = yield* toWitCodec(Schema.Result(input.success, input.failure))
       const r = input.failed ? Result.fail(input.error) : Result.succeed(input.value)
-      const wv = yield* Schema.encodeEffect(wc.codec)(r) as Effect.Effect<unknown, never>
-      return { value: wv, typ: wc.witType }
+      const sv = yield* Schema.encodeEffect(wc.codec)(r) as Effect.Effect<SchemaValue, never>
+      return typedSchemaValueToWit({ graph: wc.graph, value: sv })
     })
 
   it.effect("returns the decoded success value without invoking body", () =>
@@ -512,14 +514,14 @@ describe("Durability.wrapInfallible", () => {
     Effect.gen(function* () {
       DurabilityMock.__setIsLive(false)
       const wc = yield* toWitCodec(Ok)
-      const wv = yield* Schema.encodeEffect(wc.codec)({ price: 13 }) as Effect.Effect<
-        unknown,
+      const sv = yield* Schema.encodeEffect(wc.codec)({ price: 13 }) as Effect.Effect<
+        SchemaValue,
         never
       >
       DurabilityMock.__seedReplay({
         timestamp: { seconds: 0n, nanoseconds: 0 },
         functionName: "i::marker",
-        response: { value: wv, typ: wc.witType },
+        response: typedSchemaValueToWit({ graph: wc.graph, value: sv }),
         functionType: { tag: "write-remote" },
         entryVersion: "v2",
       })

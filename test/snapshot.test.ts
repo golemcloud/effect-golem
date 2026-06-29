@@ -24,6 +24,12 @@ import {
 } from "./mocks/golem-agent-host.js"
 import { toWitCodec } from "../src/WitCodec.js"
 import {
+  schemaValueFromWit,
+  schemaValueToWit,
+  v,
+  type SchemaValue,
+} from "../src/internal/schema-model/index.js"
+import {
   encodeBinaryEnvelope,
   encodeJsonEnvelope,
   SnapshotEnvelopeError,
@@ -31,6 +37,19 @@ import {
 } from "../src/internal/snapshotEnvelope.js"
 
 const anonymous = { tag: "anonymous" } as const
+
+/** Wrap a single constructor-param schema-value into the record-input tree. */
+const recordInput = (...fields: SchemaValue[]) => schemaValueToWit(v.record(fields))
+const EMPTY_INPUT = recordInput()
+
+/** Build the `typed-schema-value` shape `parseAgentId` returns; the SDK only
+ *  reads `.value` (the constructor's schema-value-tree). The graph is a
+ *  minimal placeholder. */
+const parsed = (typeName: string, value: ReturnType<typeof recordInput>): [string, any, any] => [
+  typeName,
+  { graph: { nodes: [], root: 0 }, value },
+  undefined,
+]
 const oidcBob = {
   tag: "oidc",
   val: { sub: "bob", issuer: "https://example.test", claims: "{}" },
@@ -270,30 +289,14 @@ describe("snapshotting", () => {
     Effect.gen(function* () {
       const stringCodec = yield* toWitCodec(Schema.String)
       const numberCodec = yield* toWitCodec(Schema.Number)
-      const aliceWv = yield* Schema.encodeEffect(stringCodec.codec)("alice")
-      const sevenWv = yield* Schema.encodeEffect(numberCodec.codec)(7)
+      const aliceSv = yield* Schema.encodeEffect(stringCodec.codec)("alice")
+      const sevenSv = yield* Schema.encodeEffect(numberCodec.codec)(7)
 
       yield* Effect.promise(() =>
-        guest.initialize(
-          "AutoSnapshotCounter",
-          { tag: "tuple", val: [{ tag: "component-model", val: aliceWv }] },
-          oidcBob,
-        ),
+        guest.initialize("AutoSnapshotCounter", recordInput(aliceSv), oidcBob),
       )
-      yield* Effect.promise(() =>
-        guest.invoke(
-          "add",
-          { tag: "tuple", val: [{ tag: "component-model", val: sevenWv }] },
-          oidcBob,
-        ),
-      )
-      yield* Effect.promise(() =>
-        guest.invoke(
-          "add",
-          { tag: "tuple", val: [{ tag: "component-model", val: sevenWv }] },
-          oidcBob,
-        ),
-      )
+      yield* Effect.promise(() => guest.invoke("add", recordInput(sevenSv), oidcBob))
+      yield* Effect.promise(() => guest.invoke("add", recordInput(sevenSv), oidcBob))
 
       const snapshot = yield* Effect.promise(() => dispatchSaveSnapshot())
       expect(snapshot.mimeType).toBe("application/json")
@@ -320,40 +323,28 @@ describe("snapshotting", () => {
       yield* Effect.promise(() => __resetAgents())
 
       __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "AutoSnapshotCounter:alice"]])
-      __setParseAgentIdForTest(() => [
-        "AutoSnapshotCounter",
-        { tag: "tuple", val: [{ tag: "component-model", val: aliceWv }] },
-        undefined,
-      ])
+      __setParseAgentIdForTest(() => parsed("AutoSnapshotCounter", recordInput(aliceSv)))
 
       yield* Effect.promise(() => dispatchLoadSnapshot(snapshot))
 
-      const out = yield* Effect.promise(() =>
-        guest.invoke("value", { tag: "tuple", val: [] }, oidcBob),
-      )
-      if (out.tag !== "tuple" || out.val[0]?.tag !== "component-model") throw new Error()
-      const value = yield* Schema.decodeEffect(numberCodec.codec)(out.val[0].val)
+      const out = yield* Effect.promise(() => guest.invoke("value", EMPTY_INPUT, oidcBob))
+      if (out === undefined) throw new Error()
+      const value = yield* Schema.decodeEffect(numberCodec.codec)(schemaValueFromWit(out))
       expect(value).toBe(14)
 
-      const ownerOut = yield* Effect.promise(() =>
-        guest.invoke("owner", { tag: "tuple", val: [] }, oidcBob),
-      )
-      if (ownerOut.tag !== "tuple" || ownerOut.val[0]?.tag !== "component-model") throw new Error()
-      const owner = yield* Schema.decodeEffect(stringCodec.codec)(ownerOut.val[0].val)
+      const ownerOut = yield* Effect.promise(() => guest.invoke("owner", EMPTY_INPUT, oidcBob))
+      if (ownerOut === undefined) throw new Error()
+      const owner = yield* Schema.decodeEffect(stringCodec.codec)(schemaValueFromWit(ownerOut))
       expect(owner).toBe("alice")
     }),
   )
 
   it("auto: load rejects an envelope whose mime type is binary", async () => {
     const stringCodec = await Effect.runPromise(toWitCodec(Schema.String))
-    const aliceWv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("alice"))
+    const aliceSv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("alice"))
 
     __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "AutoSnapshotCounter:alice"]])
-    __setParseAgentIdForTest(() => [
-      "AutoSnapshotCounter",
-      { tag: "tuple", val: [{ tag: "component-model", val: aliceWv }] },
-      undefined,
-    ])
+    __setParseAgentIdForTest(() => parsed("AutoSnapshotCounter", recordInput(aliceSv)))
 
     const wrong = encodeBinaryEnvelope(anonymous, new Uint8Array([1, 2, 3]))
     await expect(dispatchLoadSnapshot(wrong)).rejects.toThrow(SnapshotEnvelopeError)
@@ -367,30 +358,14 @@ describe("snapshotting", () => {
     Effect.gen(function* () {
       const stringCodec = yield* toWitCodec(Schema.String)
       const numberCodec = yield* toWitCodec(Schema.Number)
-      const carolWv = yield* Schema.encodeEffect(stringCodec.codec)("carol")
-      const threeWv = yield* Schema.encodeEffect(numberCodec.codec)(3)
+      const carolSv = yield* Schema.encodeEffect(stringCodec.codec)("carol")
+      const threeSv = yield* Schema.encodeEffect(numberCodec.codec)(3)
 
       yield* Effect.promise(() =>
-        guest.initialize(
-          "CustomSnapshotAgent",
-          { tag: "tuple", val: [{ tag: "component-model", val: carolWv }] },
-          oidcBob,
-        ),
+        guest.initialize("CustomSnapshotAgent", recordInput(carolSv), oidcBob),
       )
-      yield* Effect.promise(() =>
-        guest.invoke(
-          "add",
-          { tag: "tuple", val: [{ tag: "component-model", val: threeWv }] },
-          oidcBob,
-        ),
-      )
-      yield* Effect.promise(() =>
-        guest.invoke(
-          "add",
-          { tag: "tuple", val: [{ tag: "component-model", val: threeWv }] },
-          oidcBob,
-        ),
-      )
+      yield* Effect.promise(() => guest.invoke("add", recordInput(threeSv), oidcBob))
+      yield* Effect.promise(() => guest.invoke("add", recordInput(threeSv), oidcBob))
 
       const snapshot = yield* Effect.promise(() => dispatchSaveSnapshot())
       expect(snapshot.mimeType).toBe("application/octet-stream")
@@ -398,20 +373,14 @@ describe("snapshotting", () => {
 
       yield* Effect.promise(() => __resetAgents())
       __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "CustomSnapshotAgent:carol"]])
-      __setParseAgentIdForTest(() => [
-        "CustomSnapshotAgent",
-        { tag: "tuple", val: [{ tag: "component-model", val: carolWv }] },
-        undefined,
-      ])
+      __setParseAgentIdForTest(() => parsed("CustomSnapshotAgent", recordInput(carolSv)))
 
       yield* Effect.promise(() => dispatchLoadSnapshot(snapshot))
       expect(customStore.loadCalls).toBe(1)
 
-      const out = yield* Effect.promise(() =>
-        guest.invoke("value", { tag: "tuple", val: [] }, oidcBob),
-      )
-      if (out.tag !== "tuple" || out.val[0]?.tag !== "component-model") throw new Error()
-      const value = yield* Schema.decodeEffect(numberCodec.codec)(out.val[0].val)
+      const out = yield* Effect.promise(() => guest.invoke("value", EMPTY_INPUT, oidcBob))
+      if (out === undefined) throw new Error()
+      const value = yield* Schema.decodeEffect(numberCodec.codec)(schemaValueFromWit(out))
       expect(value).toBe(6)
     }),
   )
@@ -420,29 +389,21 @@ describe("snapshotting", () => {
     Effect.gen(function* () {
       const stringCodec = yield* toWitCodec(Schema.String)
       const numberCodec = yield* toWitCodec(Schema.Number)
-      const danWv = yield* Schema.encodeEffect(stringCodec.codec)("dan")
-      const fourWv = yield* Schema.encodeEffect(numberCodec.codec)(4)
+      const danSv = yield* Schema.encodeEffect(stringCodec.codec)("dan")
+      const fourSv = yield* Schema.encodeEffect(numberCodec.codec)(4)
 
-      const prefixWv = yield* Schema.encodeEffect(stringCodec.codec)("snapshot-prefix")
+      const prefixVal = schemaValueToWit(
+        yield* Schema.encodeEffect(stringCodec.codec)("snapshot-prefix"),
+      )
       __setGetConfigValueForTest((path) => {
-        if (path.length === 1 && path[0] === "prefix") return prefixWv
+        if (path.length === 1 && path[0] === "prefix") return prefixVal
         throw new Error(`unexpected config path: ${path.join(".")}`)
       })
 
       yield* Effect.promise(() =>
-        guest.initialize(
-          "ConfigCustomAgent",
-          { tag: "tuple", val: [{ tag: "component-model", val: danWv }] },
-          oidcBob,
-        ),
+        guest.initialize("ConfigCustomAgent", recordInput(danSv), oidcBob),
       )
-      yield* Effect.promise(() =>
-        guest.invoke(
-          "add",
-          { tag: "tuple", val: [{ tag: "component-model", val: fourWv }] },
-          oidcBob,
-        ),
-      )
+      yield* Effect.promise(() => guest.invoke("add", recordInput(fourSv), oidcBob))
 
       const snapshot = yield* Effect.promise(() => dispatchSaveSnapshot())
       expect(snapshot.mimeType).toBe("application/octet-stream")
@@ -450,52 +411,42 @@ describe("snapshotting", () => {
 
       yield* Effect.promise(() => __resetAgents())
       __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "ConfigCustomAgent:dan"]])
-      __setParseAgentIdForTest(() => [
-        "ConfigCustomAgent",
-        { tag: "tuple", val: [{ tag: "component-model", val: danWv }] },
-        undefined,
-      ])
+      __setParseAgentIdForTest(() => parsed("ConfigCustomAgent", recordInput(danSv)))
       __setGetConfigValueForTest((path) => {
-        if (path.length === 1 && path[0] === "prefix") return prefixWv
+        if (path.length === 1 && path[0] === "prefix") return prefixVal
         throw new Error(`unexpected config path: ${path.join(".")}`)
       })
 
       yield* Effect.promise(() => dispatchLoadSnapshot(snapshot))
       expect(configCustomStore.loadCalls).toBe(1)
 
-      const out = yield* Effect.promise(() =>
-        guest.invoke("value", { tag: "tuple", val: [] }, oidcBob),
-      )
-      if (out.tag !== "tuple" || out.val[0]?.tag !== "component-model") throw new Error()
-      const value = yield* Schema.decodeEffect(numberCodec.codec)(out.val[0].val)
+      const out = yield* Effect.promise(() => guest.invoke("value", EMPTY_INPUT, oidcBob))
+      if (out === undefined) throw new Error()
+      const value = yield* Schema.decodeEffect(numberCodec.codec)(schemaValueFromWit(out))
       expect(value).toBe(4)
     }),
   )
 
   it("custom: load handler that misuses config surfaces the failure as a thrown error", async () => {
     const stringCodec = await Effect.runPromise(toWitCodec(Schema.String))
-    const danWv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("dan"))
+    const danSv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("dan"))
 
     // First save with prefix=A, then load with prefix=B → load handler
     // throws because the embedded bytes don't begin with "B:".
-    const prefixA = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("A"))
+    const prefixA = schemaValueToWit(
+      await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("A")),
+    )
     __setGetConfigValueForTest(() => prefixA)
 
-    await guest.initialize(
-      "ConfigCustomAgent",
-      { tag: "tuple", val: [{ tag: "component-model", val: danWv }] },
-      oidcBob,
-    )
+    await guest.initialize("ConfigCustomAgent", recordInput(danSv), oidcBob)
     const snapshot = await dispatchSaveSnapshot()
 
     await __resetAgents()
     __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "ConfigCustomAgent:dan"]])
-    __setParseAgentIdForTest(() => [
-      "ConfigCustomAgent",
-      { tag: "tuple", val: [{ tag: "component-model", val: danWv }] },
-      undefined,
-    ])
-    const prefixB = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("B"))
+    __setParseAgentIdForTest(() => parsed("ConfigCustomAgent", recordInput(danSv)))
+    const prefixB = schemaValueToWit(
+      await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("B")),
+    )
     __setGetConfigValueForTest(() => prefixB)
 
     await expect(dispatchLoadSnapshot(snapshot)).rejects.toThrow(/does not match config prefix/)
@@ -503,14 +454,10 @@ describe("snapshotting", () => {
 
   it("custom: load rejects an envelope whose mime type is JSON", async () => {
     const stringCodec = await Effect.runPromise(toWitCodec(Schema.String))
-    const carolWv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("carol"))
+    const carolSv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("carol"))
 
     __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "CustomSnapshotAgent:carol"]])
-    __setParseAgentIdForTest(() => [
-      "CustomSnapshotAgent",
-      { tag: "tuple", val: [{ tag: "component-model", val: carolWv }] },
-      undefined,
-    ])
+    __setParseAgentIdForTest(() => parsed("CustomSnapshotAgent", recordInput(carolSv)))
 
     const wrong = encodeJsonEnvelope(anonymous, { count: 0, owner: "carol" })
     await expect(dispatchLoadSnapshot(wrong)).rejects.toThrow(SnapshotEnvelopeError)
@@ -531,18 +478,14 @@ describe("snapshotting", () => {
       methods: { ping: method({ params: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     void NoSnap
-    await guest.initialize("NoSnap", { tag: "tuple", val: [] }, anonymous)
+    await guest.initialize("NoSnap", EMPTY_INPUT, anonymous)
     await expect(dispatchSaveSnapshot()).rejects.toThrow(/did not declare a snapshot/)
   })
 
   it("load fails when an agent is already initialized", async () => {
     const stringCodec = await Effect.runPromise(toWitCodec(Schema.String))
-    const aliceWv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("alice"))
-    await guest.initialize(
-      "AutoSnapshotCounter",
-      { tag: "tuple", val: [{ tag: "component-model", val: aliceWv }] },
-      oidcBob,
-    )
+    const aliceSv = await Effect.runPromise(Schema.encodeEffect(stringCodec.codec)("alice"))
+    await guest.initialize("AutoSnapshotCounter", recordInput(aliceSv), oidcBob)
     const fake = encodeJsonEnvelope(anonymous, { count: 0, owner: "alice" })
     await expect(dispatchLoadSnapshot(fake)).rejects.toThrow(/already initialized/)
   })
@@ -555,7 +498,7 @@ describe("snapshotting", () => {
 
   it("load rejects malformed multipart/mixed envelopes (no body)", async () => {
     __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "AutoSnapshotCounter:x"]])
-    __setParseAgentIdForTest(() => ["AutoSnapshotCounter", { tag: "tuple", val: [] }, undefined])
+    __setParseAgentIdForTest(() => parsed("AutoSnapshotCounter", EMPTY_INPUT))
     await expect(
       dispatchLoadSnapshot({
         payload: new Uint8Array(0),
@@ -566,7 +509,7 @@ describe("snapshotting", () => {
 
   it("load rejects multipart/mixed without a boundary parameter", async () => {
     __setGetEnvironmentForTest([["GOLEM_AGENT_ID", "AutoSnapshotCounter:x"]])
-    __setParseAgentIdForTest(() => ["AutoSnapshotCounter", { tag: "tuple", val: [] }, undefined])
+    __setParseAgentIdForTest(() => parsed("AutoSnapshotCounter", EMPTY_INPUT))
     await expect(
       dispatchLoadSnapshot({
         payload: new Uint8Array(0),
@@ -577,7 +520,7 @@ describe("snapshotting", () => {
 
   it("declared snapshot but unbound impl → SnapshotNotBoundError on initialize", async () => {
     await expect(
-      guest.initialize("ForgetfulSnapshotAgent", { tag: "tuple", val: [] }, anonymous),
+      guest.initialize("ForgetfulSnapshotAgent", EMPTY_INPUT, anonymous),
     ).rejects.toThrow(/SnapshotNotBoundError|did not bind/)
   })
 
@@ -599,7 +542,7 @@ describe("snapshotting", () => {
     )
     void TwiceBound
     await expect(
-      guest.initialize("TwiceBound", { tag: "tuple", val: [] }, anonymous),
+      guest.initialize("TwiceBound", EMPTY_INPUT, anonymous),
     ).rejects.toThrow(/SnapshotAlreadyBoundError|already bound/)
   })
 })

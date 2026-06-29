@@ -703,7 +703,11 @@ describe("Http defineAgent integration", () => {
             }),
           },
         }).implement(() => Effect.succeed({ op: () => Effect.succeed("") })),
-      /multimodal\/unstructured/,
+      // On the new schema model a multimodal parameter is rejected during
+      // method compilation ("multimodal parameters are not yet supported")
+      // before the HTTP path-binding validator runs; either rejection
+      // expresses the same intent — a multimodal param cannot be path-bound.
+      /multimodal\/unstructured|multimodal parameters are not yet supported/,
     )
   })
 

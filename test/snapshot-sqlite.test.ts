@@ -24,7 +24,19 @@ import { method } from "../src/Method.js"
 import { golemAgent200Guest as guest } from "../src/internal/guest.js"
 import * as Snapshot from "../src/Snapshot.js"
 import { toWitCodec } from "../src/WitCodec.js"
+import { schemaValueToWit, v, type SchemaValue } from "../src/internal/schema-model/index.js"
 import { DatabaseSync } from "node:sqlite"
+
+/** Wrap constructor-param schema-values into the record-input tree. */
+const recordInput = (...fields: SchemaValue[]) => schemaValueToWit(v.record(fields))
+const EMPTY_INPUT = recordInput()
+
+/** `parseAgentId` mock shape: the SDK reads `.value` (constructor input tree). */
+const parsed = (typeName: string, value: ReturnType<typeof recordInput>): [string, any, any] => [
+  typeName,
+  { graph: { nodes: [], root: 0 }, value },
+  undefined,
+]
 
 const oidcZoe = {
   tag: "oidc",
@@ -127,7 +139,7 @@ describe("snapshot + sqlite databases", () => {
 
     await guest.initialize(
       "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
+      recordInput(xWv),
       oidcZoe,
     )
 
@@ -137,11 +149,7 @@ describe("snapshot + sqlite databases", () => {
 
     await __resetAgents()
     __setEnvironment([["GOLEM_AGENT_ID", "SqliteCounterTest:zoe"]])
-    __setParseAgentIdForTest(() => [
-      "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
-      undefined,
-    ])
+    __setParseAgentIdForTest(() => parsed("SqliteCounterTest", recordInput(xWv)))
 
     await dispatchLoadSnapshot(snapshot)
     expect(restoreCalled).not.toBeNull()
@@ -149,7 +157,7 @@ describe("snapshot + sqlite databases", () => {
   })
 
   it("save fails fast if the user declared a DB but never attached it", async () => {
-    await guest.initialize("SqliteForgetfulAttach", { tag: "tuple", val: [] }, oidcZoe)
+    await guest.initialize("SqliteForgetfulAttach", EMPTY_INPUT, oidcZoe)
     await expect(dispatchSaveSnapshot()).rejects.toThrow(/SnapshotDatabaseMissingPartError/)
   })
 
@@ -162,7 +170,7 @@ describe("snapshot + sqlite databases", () => {
 
     await guest.initialize(
       "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
+      recordInput(xWv),
       oidcZoe,
     )
     await expect(dispatchSaveSnapshot()).rejects.toThrow(/SnapshotDatabaseNotInAutocommitError/)
@@ -177,7 +185,7 @@ describe("snapshot + sqlite databases", () => {
 
     await guest.initialize(
       "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
+      recordInput(xWv),
       oidcZoe,
     )
     const snap = await dispatchSaveSnapshot()
@@ -193,11 +201,7 @@ describe("snapshot + sqlite databases", () => {
 
     await __resetAgents()
     __setEnvironment([["GOLEM_AGENT_ID", "SqliteCounterTest:zoe"]])
-    __setParseAgentIdForTest(() => [
-      "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
-      undefined,
-    ])
+    __setParseAgentIdForTest(() => parsed("SqliteCounterTest", recordInput(xWv)))
     void snap
     await expect(dispatchLoadSnapshot(tampered)).rejects.toThrow(/SnapshotDatabaseUnknownPartError/)
   })
@@ -210,11 +214,7 @@ describe("snapshot + sqlite databases", () => {
     const { encodeMultipartJsonEnvelope } = await import("../src/internal/snapshotEnvelope.js")
     const tampered = encodeMultipartJsonEnvelope({ tag: "anonymous" }, { note: "zoe" }, [])
     __setEnvironment([["GOLEM_AGENT_ID", "SqliteCounterTest:zoe"]])
-    __setParseAgentIdForTest(() => [
-      "SqliteCounterTest",
-      { tag: "tuple", val: [{ tag: "component-model", val: xWv }] },
-      undefined,
-    ])
+    __setParseAgentIdForTest(() => parsed("SqliteCounterTest", recordInput(xWv)))
     await expect(dispatchLoadSnapshot(tampered)).rejects.toThrow(/SnapshotDatabaseMissingPartError/)
   })
 })
