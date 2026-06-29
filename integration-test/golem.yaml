@@ -106,6 +106,8 @@ agents:
     config: {}
   InventorySaga:
     config: {}
+  QuotaTester:
+    config: {}
   WebhookAgent:
     config: {}
   WebSocketAgent:

@@ -13,7 +13,7 @@ import "./ignite-counter-agent.js"
 import "./host-features-agent.js"
 import "./booking-saga-agent.js"
 import "./inventory-saga-agent.js"
-// import "./quota-tester-agent.js" // TEMP: pending Phase-5 quota-token migration
+import "./quota-tester-agent.js"
 import "./webhook-agent.js"
 import "./websocket-agent.js"
 import "./kv-agent.js"

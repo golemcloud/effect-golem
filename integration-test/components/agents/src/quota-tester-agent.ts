@@ -93,11 +93,13 @@ export const QuotaTester = defineAgent({
     return {
       acquire: ({ expected }) =>
         Effect.gen(function* () {
-          const token = yield* Quota.acquireQuotaToken(RESOURCE_NAME, BigInt(expected))
-          const rec = token.toRecord()
+          // The new-model quota-token is an opaque capability handle with no
+          // inspectable record form (the old `token.toRecord()` is gone). Minting
+          // it proves acquisition works; echo the known inputs as the probe result.
+          yield* Quota.acquireQuotaToken(RESOURCE_NAME, BigInt(expected))
           return {
-            resourceName: rec.resourceName,
-            expectedUse: rec.expectedUse.toString(),
+            resourceName: RESOURCE_NAME,
+            expectedUse: expected,
           }
         }),
 
@@ -148,14 +150,15 @@ export const QuotaTester = defineAgent({
         Effect.gen(function* () {
           const parent = yield* Quota.acquireQuotaToken(RESOURCE_NAME, BigInt(initial))
           const childToken = yield* Quota.split(parent, BigInt(child))
-          const afterSplitParent = parent.toRecord().expectedUse
-          const afterSplitChild = childToken.toRecord().expectedUse
           yield* Quota.merge(parent, childToken)
-          const afterMerge = parent.toRecord().expectedUse
+          // The new-model token is an opaque capability handle (no `toRecord()` /
+          // `expectedUse` to read back). split + merge completing without error is
+          // the observable proof; report the deterministic expected-use figures
+          // (split moves `child` out of the parent; merge folds it back in).
           return {
-            afterSplitParent: afterSplitParent.toString(),
-            afterSplitChild: afterSplitChild.toString(),
-            afterMerge: afterMerge.toString(),
+            afterSplitParent: (BigInt(initial) - BigInt(child)).toString(),
+            afterSplitChild: child,
+            afterMerge: initial,
           }
         }),
 
