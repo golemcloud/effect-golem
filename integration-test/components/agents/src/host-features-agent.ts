@@ -44,7 +44,7 @@
  */
 import { Effect, Ref, Schema, Stream } from "effect"
 import { Agents, defineAgent, Durability, method, Oplog, SelfAgentId, Snapshot } from "effect-golem"
-import * as CoreTypes from "golem:core/types@1.5.0"
+import * as CoreTypes from "golem:core/types@2.0.0"
 
 const uuidToString = (uuid: { highBits: bigint; lowBits: bigint }): string =>
   CoreTypes.uuidToString(uuid)
