@@ -11,7 +11,7 @@ import {
   __setParseAgentIdImpl as __setParseAgentIdForTest,
 } from "./mocks/golem-agent-host.js"
 import { method } from "../src/Method.js"
-import { guest } from "../src/internal/guest.js"
+import { golemAgent200Guest as guest } from "../src/internal/guest.js"
 import * as Snapshot from "../src/Snapshot.js"
 import { defineConfig } from "../src/Config.js"
 import {

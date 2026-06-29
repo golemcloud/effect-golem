@@ -9,7 +9,7 @@ import { describe, expect, it, beforeEach } from "@effect/vitest"
 import { Effect, Ref, Schema } from "effect"
 import { defineAgent, __resetAgents } from "../src/Agent.js"
 import { method } from "../src/Method.js"
-import { guest } from "../src/internal/guest.js"
+import { golemAgent200Guest as guest } from "../src/internal/guest.js"
 import { Snapshot } from "../src/index.js"
 
 const SpecOnlyAgent = defineAgent({

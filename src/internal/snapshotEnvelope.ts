@@ -1,7 +1,8 @@
 import { Schema } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
+import { strictTextDecoder } from "./textDecoder.js"
 import type * as ApiHost from "golem:api/host@1.5.0"
-import * as CoreTypes from "golem:core/types@1.5.0"
+import * as CoreTypes from "golem:core/types@2.0.0"
 import {
   decodeMultipart,
   encodeMultipart,
@@ -107,7 +108,7 @@ const encodePrincipal = Schema.encodeUnknownSync(PrincipalFromString)
 const decodePrincipalFromString = Schema.decodeUnknownSync(PrincipalFromString)
 
 const encoder = new TextEncoder()
-const strictDecoder = new TextDecoder("utf-8", { fatal: true })
+const strictDecoder = strictTextDecoder()
 
 const decodeUtf8 = (bytes: Uint8Array, ctx: string): string => {
   try {

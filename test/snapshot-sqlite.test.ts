@@ -21,7 +21,7 @@ import {
   __setEnvironment,
 } from "./mocks/wasi-cli-environment.js"
 import { method } from "../src/Method.js"
-import { guest } from "../src/internal/guest.js"
+import { golemAgent200Guest as guest } from "../src/internal/guest.js"
 import * as Snapshot from "../src/Snapshot.js"
 import { toWitCodec } from "../src/WitCodec.js"
 import { DatabaseSync } from "node:sqlite"

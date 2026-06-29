@@ -1338,9 +1338,10 @@ export const dispatchLoadSnapshot = async (snapshot: ApiHost.Snapshot): Promise<
   const constructorInput = await decodeConstructorInput(
     agentTypeName,
     compiled,
-    // TODO(phase-4): once `AgentHostClient.parseAgentId` is migrated it returns a
-    // `typed-schema-value`; use `ctorDataValue.value` (the `schema-value-tree`).
-    ctorDataValue as unknown as SchemaValueTree,
+    // `parseAgentId` returns a `typed-schema-value`; the constructor input is its
+    // `schema-value-tree` value (the graph travels alongside but isn't needed here
+    // since the codec already knows the type).
+    ctorDataValue.value,
   )
   const { scope, handlers, bindingHandle, selfAgentId } = await initAgentInstance(
     agentTypeName,
