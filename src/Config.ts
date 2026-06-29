@@ -15,6 +15,7 @@ import { toWitCodec, UnsupportedSchemaError, type WitCodec } from "./WitCodec.js
 import {
   schemaGraphToWit,
   schemaValueFromWit,
+  t,
   typedSchemaValueToWit,
   type SchemaGraph,
   type SchemaValue,
@@ -205,7 +206,15 @@ export const compileConfig = (
             )
           }
           const inner = Schema.make<Schema.Top>(innerAst as Schema.Top["ast"])
-          const witCodec = (yield* toWitCodec(inner)) as WitCodec<Schema.Top>
+          const innerCodec = (yield* toWitCodec(inner)) as WitCodec<Schema.Top>
+          // The agent registry requires a secret-typed config field to declare
+          // its value type as `secret<plaintext>` (a capability node), not the
+          // bare plaintext. Wrap the inner type in a `secret` schema node; the
+          // inner codec still drives plaintext encode/decode of the revealed value.
+          const witCodec: WitCodec<Schema.Top> = {
+            ...innerCodec,
+            graph: { ...innerCodec.graph, root: t.secret(innerCodec.graph.root) },
+          }
           leaves.push({ source: "secret", path, witCodec })
           return
         }

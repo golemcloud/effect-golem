@@ -58,18 +58,29 @@ interface LoadSnapshotExports {
  * these dispatchers — they should never need to interact with
  * `golemAgent200Guest`, `saveSnapshot`, or `loadSnapshot` directly.
  *
- * The export-object name follows the wasm-rquickjs convention for the WIT
- * package+interface (`golem:agent@2.0.0` / `guest` → `golemAgent200Guest`).
+ * The export-object name follows the wasm-rquickjs convention used by
+ * effect-golem's template generator: the WIT interface short name `guest`
+ * (of `golem:agent/guest@2.0.0`) maps to the JS export `guest`. The Rust
+ * wrapper looks up `guest.discoverAgentTypes` / `guest.invoke` etc.
  *
  * @since 1.6.0
  * @category runtime hooks
  */
-export const golemAgent200Guest: GuestExports = {
+export const guest: GuestExports = {
   initialize: dispatchInitialize,
   invoke: dispatchInvoke,
   discoverAgentTypes: dispatchDiscoverAgentTypes,
   getDefinition: dispatchGetDefinition,
 }
+
+/**
+ * Backwards-compatible alias. Some call sites / tests refer to the export by
+ * the package-qualified name; both resolve to the same object.
+ *
+ * @since 1.6.0
+ * @category runtime hooks
+ */
+export const golemAgent200Guest: GuestExports = guest
 
 /**
  * Snapshotting hooks. Wired through to the dispatchers in `./agent`.

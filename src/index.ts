@@ -290,4 +290,4 @@ export { method } from "./Method.js"
  * @since 1.5.0
  * @category internal
  */
-export { golemAgent200Guest, saveSnapshot, loadSnapshot } from "./internal/guest.js"
+export { guest, golemAgent200Guest, saveSnapshot, loadSnapshot } from "./internal/guest.js"
