@@ -13,6 +13,8 @@ import {
   t,
   v,
   variantCase,
+  type NumericBound,
+  type NumericRestrictions,
   type SchemaGraph,
   type SchemaType,
   type SchemaValue,
@@ -23,9 +25,11 @@ import { QUOTA_INTERNAL } from "./internal/schema-model/quotaInternal.js"
 import type { QuotaToken as RawQuotaToken } from "golem:core/types@2.0.0"
 import {
   variantCaseNameAnnotationKey,
+  witNumericRestrictionsKey,
   witQuotaTokenAnnotationKey,
   witTypeAnnotationKey,
   witTypedArrayAnnotationKey,
+  type NumericRestrictionsInput,
   type WitNumericKind,
   type WitTypedArrayKind,
 } from "./WitTypes.js"
@@ -102,7 +106,7 @@ const primPair = (make: (val: any) => SchemaValue): ValuePair => ({
  */
 const numericMapping: Record<
   WitNumericKind,
-  { make: () => SchemaType; toV: (v: any) => SchemaValue; coerce: (v: any) => any }
+  { make: (r?: NumericRestrictions) => SchemaType; toV: (v: any) => SchemaValue; coerce: (v: any) => any }
 > = {
   u8: { make: t.u8, toV: v.u8, coerce: (v) => v },
   u16: { make: t.u16, toV: v.u16, coerce: (v) => v },
@@ -132,10 +136,47 @@ const annotationOf = <T = unknown>(a: SchemaAST.AST, key: string): T | undefined
 const numericKindOf = (a: SchemaAST.AST): WitNumericKind | undefined =>
   annotationOf<WitNumericKind>(a, witTypeAnnotationKey)
 
-const numericNode = (kind: WitNumericKind): { type: SchemaType; pair: ValuePair } => {
+const F64_BITS_VIEW = new DataView(new ArrayBuffer(8))
+const f64Bits = (x: number): bigint => {
+  // Canonicalize -0.0 to +0.0 so equal bounds compare equal (mirrors the codec).
+  F64_BITS_VIEW.setFloat64(0, x === 0 ? 0 : x)
+  return F64_BITS_VIEW.getBigUint64(0)
+}
+
+/** The `numeric-bound` tag for a numeric pin kind. */
+const boundKindOf = (kind: WitNumericKind): "signed" | "unsigned" | "float-bits" =>
+  kind[0] === "f" ? "float-bits" : kind[0] === "s" ? "signed" : "unsigned"
+
+const makeBound = (
+  boundKind: "signed" | "unsigned" | "float-bits",
+  x: number | bigint,
+): NumericBound =>
+  boundKind === "float-bits"
+    ? { tag: "float-bits", val: f64Bits(Number(x)) }
+    : { tag: boundKind, val: BigInt(x) }
+
+/** Read inline numeric restrictions (from a `restrict(...)` annotation) for `kind`. */
+const numericRestrictionsOf = (
+  a: SchemaAST.AST,
+  kind: WitNumericKind,
+): NumericRestrictions | undefined => {
+  const opts = annotationOf<NumericRestrictionsInput>(a, witNumericRestrictionsKey)
+  if (!opts || (opts.min === undefined && opts.max === undefined && !opts.unit)) return undefined
+  const bk = boundKindOf(kind)
+  return {
+    min: opts.min !== undefined ? makeBound(bk, opts.min) : undefined,
+    max: opts.max !== undefined ? makeBound(bk, opts.max) : undefined,
+    unit: opts.unit,
+  }
+}
+
+const numericNode = (
+  kind: WitNumericKind,
+  a: SchemaAST.AST,
+): { type: SchemaType; pair: ValuePair } => {
   const m = numericMapping[kind]
   return {
-    type: m.make(),
+    type: m.make(numericRestrictionsOf(a, kind)),
     pair: {
       toValue: (val) => m.toV(m.coerce(val)),
       fromValue: (sv) => (sv as { value: unknown }).value,
@@ -467,11 +508,11 @@ const walk = (
           }
           case "Number": {
             const kind = numericKindOf(a) ?? "f64"
-            return numericNode(kind)
+            return numericNode(kind, a)
           }
           case "BigInt": {
             const kind = numericKindOf(a) ?? "s64"
-            return numericNode(kind)
+            return numericNode(kind, a)
           }
 
           case "Objects": {

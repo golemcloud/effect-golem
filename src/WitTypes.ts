@@ -39,6 +39,38 @@ export type WitNumericKind =
 const tag = (kind: WitNumericKind) => ({ [witTypeAnnotationKey]: kind })
 
 /**
+ * Annotation key carrying inline numeric min/max/unit restrictions on a numeric
+ * pin schema. The codec lowers it to the WIT `numeric-restrictions` payload.
+ *
+ * @since 1.6.0
+ * @category utils
+ */
+export const witNumericRestrictionsKey = "effect-golem/witNumericRestrictions"
+
+/**
+ * User input for {@link restrict}: inclusive `min`/`max` bounds (+ optional
+ * display `unit`).
+ *
+ * @since 1.6.0
+ * @category models
+ */
+export interface NumericRestrictionsInput {
+  readonly min?: number | bigint
+  readonly max?: number | bigint
+  readonly unit?: string
+}
+
+/**
+ * Annotate a numeric pin with inline restrictions, e.g.
+ * `Uint8.pipe(restrict({ min: 1, max: 200 }))` or `Schema.Number.pipe(restrict({ max: 100 }))`.
+ *
+ * @since 1.6.0
+ * @category codecs
+ */
+export const restrict = (opts: NumericRestrictionsInput) =>
+  Schema.annotate({ [witNumericRestrictionsKey]: opts })
+
+/**
  * WIT `u8` (`number`, integer 0..255).
  *
  * @since 1.5.0
