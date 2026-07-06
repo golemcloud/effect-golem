@@ -18,8 +18,8 @@ const Counter = defineAgent({
   mode: "durable",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Void }),
+    getValue: method({ input: {}, returns: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, returns: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -33,7 +33,7 @@ const Worker = defineAgent({
   mode: "ephemeral",
   id: { jobId: Schema.String },
   methods: {
-    run: method({ params: { times: Schema.Number }, success: Schema.String }),
+    run: method({ input: { times: Schema.Number }, returns: Schema.String }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -457,7 +457,7 @@ describe("AgentClient overrides (config)", () => {
     config: CounterCfg,
     id: { initial: Schema.Number },
     methods: {
-      noop: method({ params: {}, success: Schema.Void }),
+      noop: method({ input: {}, returns: Schema.Void }),
     },
   }).implement(() =>
     Effect.succeed({
@@ -806,13 +806,13 @@ const Lookup = defineAgent({
   id: { realm: Schema.String },
   methods: {
     fetch: method({
-      params: { id: Schema.String },
-      success: Schema.Number,
+      input: { id: Schema.String },
+      returns: Schema.Number,
       error: NotFoundErr,
     }),
     cmd: method({
-      params: { fail: Schema.Boolean },
-      success: Schema.Void,
+      input: { fail: Schema.Boolean },
+      returns: Schema.Void,
       error: NotFoundErr,
     }),
   },

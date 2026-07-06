@@ -48,7 +48,7 @@ const runFail = <A, E>(eff: Effect.Effect<A, E>): Effect.Effect<E, Error> =>
     const exit = yield* Effect.exit(eff)
     if (exit._tag === "Success") {
       return yield* Effect.fail(
-        new Error(`expected failure, got success: ${JSON.stringify(exit.value)}`),
+        new Error(`expected failure, got returns: ${JSON.stringify(exit.value)}`),
       )
     }
     const opt = Cause.findErrorOption(exit.cause)
@@ -421,14 +421,14 @@ describe("Http defineAgent integration", () => {
         http: mount("/counters/{name}", { cors: ["*"], auth: true }),
         methods: {
           value: method({
-            params: {},
-            success: Schema.Number,
+            input: {},
+            returns: Schema.Number,
             description: "current value",
             http: [get("/value")],
           }),
           add: method({
-            params: { by: Schema.Number },
-            success: Schema.Number,
+            input: { by: Schema.Number },
+            returns: Schema.Number,
             http: [post("/add"), get("/add?by={by}")],
           }),
         },
@@ -472,7 +472,7 @@ describe("Http defineAgent integration", () => {
         name: "NoHttp",
         id: {},
         methods: {
-          ping: method({ params: {}, success: Schema.Void }),
+          ping: method({ input: {}, returns: Schema.Void }),
         },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       const types = yield* Effect.promise(() => guest.discoverAgentTypes())
@@ -493,7 +493,7 @@ describe("Http defineAgent integration", () => {
           name: "MissingMount",
           id: {},
           methods: {
-            value: method({ params: {}, success: Schema.Number, http: [get("/v")] }),
+            value: method({ input: {}, returns: Schema.Number, http: [get("/v")] }),
           },
         }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) })),
       /declares HTTP endpoints but no mount/,
@@ -563,8 +563,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             getOne: method({
-              params: {} as Record<string, never>,
-              success: Schema.String,
+              input: {} as Record<string, never>,
+              returns: Schema.String,
               http: [get("/items/{nope}")] as never,
             }),
           },
@@ -586,8 +586,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { id: Schema.String },
-              success: Schema.String,
+              input: { id: Schema.String },
+              returns: Schema.String,
               http: [get("/items/{id}?id={id}")] as never,
             }),
           },
@@ -608,8 +608,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { a: Schema.String, b: Schema.String },
-              success: Schema.String,
+              input: { a: Schema.String, b: Schema.String },
+              returns: Schema.String,
               http: [get("/items", { headers: { "X-Foo": "a", "x-foo": "b" } as const }) as never],
             }),
           },
@@ -627,8 +627,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { payload: Schema.String },
-              success: Schema.String,
+              input: { payload: Schema.String },
+              returns: Schema.String,
               // @ts-expect-error — bodyless `Http.get(...)` cannot have
               // an unbound `payload` param. We silence the static error
               // here to keep covering the runtime validator (defence in
@@ -651,8 +651,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { obj: Schema.Struct({ a: Schema.String }) },
-              success: Schema.String,
+              input: { obj: Schema.Struct({ a: Schema.String }) },
+              returns: Schema.String,
               http: [post("/items/{obj}")],
             }),
           },
@@ -672,8 +672,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { text: UnstructuredText() },
-              success: Schema.String,
+              input: { text: UnstructuredText() },
+              returns: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // ElementSpec params from path bindings; the runtime
               // validator below still fires for defense-in-depth.
@@ -694,8 +694,8 @@ describe("Http defineAgent integration", () => {
           http: mount("/x"),
           methods: {
             op: method({
-              params: { mm: multimodal({ chunk: UnstructuredText() }) },
-              success: Schema.String,
+              input: { mm: multimodal({ chunk: UnstructuredText() }) },
+              returns: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // Multimodal params from path bindings; the runtime
               // validator below still fires for defense-in-depth.
@@ -719,8 +719,8 @@ describe("Http defineAgent integration", () => {
         http: mount("/api/{tenant}"),
         methods: {
           find: method({
-            params: { id: Schema.String, q: Schema.String, traceId: Schema.String },
-            success: Schema.String,
+            input: { id: Schema.String, q: Schema.String, traceId: Schema.String },
+            returns: Schema.String,
             http: [get("/items/{id}?q={q}", { headers: { "X-Trace": "traceId" } as const })],
           }),
         },
@@ -778,12 +778,12 @@ describe("Http pipeable combinators — endpoints", () => {
     // when wired into a method. This exercises the type-level union
     // widening in `withHeader` / `withHeaders`.
     method({
-      params: {
+      input: {
         id: Schema.String,
         traceId: Schema.String,
         idempotencyKey: Schema.String,
       },
-      success: Schema.String,
+      returns: Schema.String,
       http: [
         get("/items/{id}").pipe(
           withHeader("X-Trace", "traceId"),
@@ -825,8 +825,8 @@ describe("Http pipeable combinators — endpoints", () => {
         http: mount("/api/{tenant}"),
         methods: {
           find: method({
-            params: { id: Schema.String, traceId: Schema.String },
-            success: Schema.String,
+            input: { id: Schema.String, traceId: Schema.String },
+            returns: Schema.String,
             http: [get("/items/{id}").pipe(withHeader("X-Trace", "traceId"), withAuth(true))],
           }),
         },
@@ -921,8 +921,8 @@ describe("Http pipeable combinators — mounts", () => {
         http: mount("/api/{tenant}").pipe(withAuth(true), withCors("https://x.com")),
         methods: {
           find: method({
-            params: {},
-            success: Schema.String,
+            input: {},
+            returns: Schema.String,
             http: [get("/items")],
           }),
         },

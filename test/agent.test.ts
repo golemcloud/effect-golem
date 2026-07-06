@@ -45,12 +45,12 @@ const Greeter = defineAgent({
   id: {},
   methods: {
     greet: method({
-      params: { person: Person, greeting: Schema.String },
-      success: Schema.String,
+      input: { person: Person, greeting: Schema.String },
+      returns: Schema.String,
       description: "Greet the given person with the given greeting",
       promptHint: "Use to produce a friendly salutation for a Person.",
     }),
-    ping: method({ params: {}, success: Schema.Void }),
+    ping: method({ input: {}, returns: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -65,8 +65,8 @@ const Counter = defineAgent({
   name: "Counter",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Void }),
+    getValue: method({ input: {}, returns: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, returns: Schema.Void }),
   },
 }).implement(({ initial }) =>
   Effect.gen(function* () {
@@ -101,9 +101,9 @@ const PrincipalAgent = defineAgent({
   name: "PrincipalAgent",
   id: {},
   methods: {
-    owner: method({ params: {}, success: Schema.String }),
-    caller: method({ params: {}, success: Schema.String }),
-    callerForked: method({ params: {}, success: Schema.String }),
+    owner: method({ input: {}, returns: Schema.String }),
+    caller: method({ input: {}, returns: Schema.String }),
+    callerForked: method({ input: {}, returns: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -152,9 +152,9 @@ const ConfigAgent = defineAgent({
   config: TestConfig,
   id: {},
   methods: {
-    initialGreeting: method({ params: {}, success: Schema.String }),
-    currentGreeting: method({ params: {}, success: Schema.String }),
-    keyTail: method({ params: {}, success: Schema.String }),
+    initialGreeting: method({ input: {}, returns: Schema.String }),
+    currentGreeting: method({ input: {}, returns: Schema.String }),
+    keyTail: method({ input: {}, returns: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -374,7 +374,7 @@ describe("agent-guest exports", () => {
     defineAgent({
       name: "Greeter",
       id: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      methods: { ping: method({ input: {}, returns: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     let caught: unknown
     try {

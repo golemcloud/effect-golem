@@ -56,8 +56,8 @@ const SqliteCounter = defineAgent({
     policy: Snapshot.policy.everyN(5),
   }),
   methods: {
-    note: method({ params: {}, success: Schema.String }),
-    setNote: method({ params: { v: Schema.String }, success: Schema.Void }),
+    note: method({ input: {}, returns: Schema.String }),
+    setNote: method({ input: { v: Schema.String }, returns: Schema.Void }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -84,7 +84,7 @@ const SqliteForgetfulAttach = defineAgent({
     policy: Snapshot.policy.default,
   }),
   methods: {
-    ping: method({ params: {}, success: Schema.Void }),
+    ping: method({ input: {}, returns: Schema.Void }),
   },
 }).implement((_input, snap) =>
   Effect.gen(function* () {

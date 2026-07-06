@@ -323,7 +323,7 @@ export type ValidEndpointPath<S extends string> = string extends S ? S : Validat
 // `[any] extends [ElementSpec<…>]` both evaluate to `true`, which
 // would collapse `BindableKeys<any>` to `never` and silently break
 // the structural compatibility check between `Method<...>` (which
-// extends `MethodSpec<Params, ...>`) and `MethodSpec<any, any, any>`
+// extends `MethodSpec<Input, ...>`) and `MethodSpec<any, any, any>`
 // — the constraint `T extends MethodSpec<any, any, any>` used by
 // `withDescription` / `withPromptHint` would then reject every
 // `Method`.
@@ -667,7 +667,7 @@ export type HeaderKeysTuple<H> = [H[keyof H]] extends [never]
 //
 // `EndpointVars` (the first phantom on `EndpointDef`) is the union of
 // every name bound by the endpoint — path, query, AND header. So
-// `Exclude<keyof Params & string, EndpointVars> extends never`
+// `Exclude<keyof Input & string, EndpointVars> extends never`
 // expresses "every method parameter is bound somewhere on this
 // endpoint". When the endpoint's `Kind` is narrowed to `"bodyless"`
 // (only the `Http.get` / `Http.head` shorthands do this), an unbound
@@ -697,7 +697,7 @@ type BodylessLabel<K extends string> = K extends "bodyless" ? "GET/HEAD" : K
  * Maps each endpoint positionally — endpoints with different `Kind`
  * values and different bound-var sets in the same array are validated
  * independently. Endpoints whose `Kind` extends `"bodyless"` AND
- * whose bound-var union does NOT cover every key of `Params` are
+ * whose bound-var union does NOT cover every key of `Input` are
  * replaced with an {@link Invalid} carrier whose message names the
  * missing parameter(s); every other endpoint passes through
  * unchanged. Bodyful endpoints are always passed through (their
@@ -714,7 +714,7 @@ type BodylessLabel<K extends string> = K extends "bodyless" ? "GET/HEAD" : K
  */
 export type ValidateBodylessEndpoints<
   Endpoints extends ReadonlyArray<EndpointDef<string, EndpointKind, EndpointBound, unknown>>,
-  Params,
+  Input,
 > = {
   readonly [I in keyof Endpoints]: Endpoints[I] extends EndpointDef<
     infer Bound,
@@ -723,10 +723,10 @@ export type ValidateBodylessEndpoints<
     unknown
   >
     ? Kind extends "bodyless"
-      ? [Exclude<keyof Params & string, Bound>] extends [never]
+      ? [Exclude<keyof Input & string, Bound>] extends [never]
         ? Endpoints[I]
         : Invalid<`${BodylessLabel<Kind>} endpoint cannot have unbound param '${Exclude<
-            keyof Params & string,
+            keyof Input & string,
             Bound
           > &
             string}' (only path / query / header bindings are allowed because there is no request body)`>
@@ -750,7 +750,7 @@ export type ValidateBodylessEndpoints<
  */
 export type RequireValidBodylessEndpoints<
   Endpoints extends ReadonlyArray<EndpointDef<string, EndpointKind, EndpointBound, unknown>>,
-  Params,
+  Input,
 > = {
   readonly [I in keyof Endpoints]: Endpoints[I] extends EndpointDef<
     infer Bound,
@@ -759,10 +759,10 @@ export type RequireValidBodylessEndpoints<
     unknown
   >
     ? Kind extends "bodyless"
-      ? [Exclude<keyof Params & string, Bound>] extends [never]
+      ? [Exclude<keyof Input & string, Bound>] extends [never]
         ? unknown
         : Invalid<`${BodylessLabel<Kind>} endpoint cannot have unbound param '${Exclude<
-            keyof Params & string,
+            keyof Input & string,
             Bound
           > &
             string}' (only path / query / header bindings are allowed because there is no request body)`>

@@ -697,10 +697,10 @@ export const registerAgent = <
       methodCodecs.set(methodName, mc)
       methodHttpInputs.push({
         name: methodName,
-        params: spec.params,
+        input: spec.input,
         endpoints: spec.http ?? [],
-        nonStringBindableParams: collectNonStringBindableParams(spec.params),
-        stringBindableParams: collectStringBindableParams(spec.params),
+        nonStringBindableInputs: collectNonStringBindableParams(spec.input),
+        stringBindableInputs: collectStringBindableParams(spec.input),
       })
     }
 

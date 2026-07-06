@@ -168,7 +168,7 @@ type AssertEqual<X, Y> =
     name: "_LeakProbe",
     id: { name: Schema.String },
     methods: {
-      probe: method({ params: {}, success: Schema.Number }),
+      probe: method({ input: {}, returns: Schema.Number }),
     },
   }).implement(() =>
     Effect.succeed({

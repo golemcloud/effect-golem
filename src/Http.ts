@@ -51,10 +51,10 @@ export type {
  *   id: { name: Schema.String },
  *   http: Http.mount("/counters/{agent-type}/{name}", { cors: ["*"] }),
  *   methods: {
- *     value: method({ params: {}, success: Schema.Number, http: [Http.get("/value")] }),
+ *     value: method({ input: {}, returns: Schema.Number, http: [Http.get("/value")] }),
  *     add:   method({
- *       params: { by: Schema.Number },
- *       success: Schema.Number,
+ *       input: { by: Schema.Number },
+ *       returns: Schema.Number,
  *       http: [
  *         Http.post("/add"),               // by ← JSON body
  *         Http.get("/add?by={by}"),        // by ← query param
@@ -944,7 +944,7 @@ export type EndpointFactory<Kind extends EndpointKind> = <
  *   parameter, since there is no request body in which to deliver it.
  * - Path / query / header bindings to multimodal or unstructured
  *   parameters (i.e. `Multimodal` or `ElementSpec` carriers) are
- *   rejected via the `BindableKeys<Params>` constraint on
+ *   rejected via the `BindableKeys<Input>` constraint on
  *   `EndpointDef`.
  *
  * **Runtime fallbacks (defence-in-depth)**
@@ -954,7 +954,7 @@ export type EndpointFactory<Kind extends EndpointKind> = <
  * `Schema.Struct` schema as a path var) remain runtime-only because
  * they need parser-level loops or `Schema.AST` introspection. The
  * matching-parameter check for every binding is enforced by the type
- * system via `EndpointDef<BindableKeys<Params>>` for literal call
+ * system via `EndpointDef<BindableKeys<Input>>` for literal call
  * shapes and by `validateEndpoint` at registration time for the
  * widened cases.
  *
@@ -986,7 +986,7 @@ const verbHelper = <Kind extends EndpointKind>(verb: HttpVerb): EndpointFactory<
 /**
  * Shorthand for `Http.endpoint("GET", path, opts?)`. Bodyless: every
  * method parameter MUST be bound from a path / query / header variable
- * within the same endpoint; unbound params would otherwise have to
+ * within the same endpoint; unbound input would otherwise have to
  * travel in the request body, which `GET` does not have. The
  * "no-unbound-param" check is enforced at compile time by tagging the
  * returned endpoint as `"bodyless"` and surfacing an `Invalid<…>`
@@ -1074,7 +1074,7 @@ export const connect: EndpointFactory<"bodyful"> = verbHelper<"bodyful">("CONNEC
  * shorthands as bodyless. All other compile-time guarantees on the
  * path string (shape, query-key uniqueness, …) and on the resulting
  * endpoint (duplicate bindings, case-fold header uniqueness,
- * `BindableKeys` filtering of multimodal/unstructured params) apply
+ * `BindableKeys` filtering of multimodal/unstructured input) apply
  * identically; see {@link endpoint} for the full list.
  *
  * @since 1.5.0
@@ -1385,20 +1385,20 @@ export interface CompiledHttp {
  */
 export interface MethodHttpInput {
   readonly name: string
-  readonly params: Readonly<Record<string, unknown>>
+  readonly input: Readonly<Record<string, unknown>>
   readonly endpoints: ReadonlyArray<EndpointDef<string>>
   /**
    * Names of method parameters that are NOT eligible to be bound from
    * a string source (path / query / header) — typically multimodal /
    * unstructured-binary / unstructured-text.
    */
-  readonly nonStringBindableParams: ReadonlySet<string>
+  readonly nonStringBindableInputs: ReadonlySet<string>
   /**
    * Names of method parameters whose schema is a plain string-bindable
    * Schema (string / number / bigint / boolean / literal / branded
    * variants thereof).
    */
-  readonly stringBindableParams: ReadonlySet<string>
+  readonly stringBindableInputs: ReadonlySet<string>
 }
 
 /**
@@ -1453,21 +1453,21 @@ const validateEndpoint = (
         }
       }
       const name = seg.name
-      if (!(name in m.params)) {
+      if (!(name in m.input)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: path variable '${name}' does not match any method parameter (params: ${Object.keys(m.params).join(", ") || "<none>"})`,
+            `${ctx}: path variable '${name}' does not match any method parameter (available: ${Object.keys(m.input).join(", ") || "<none>"})`,
           ),
         )
       }
-      if (m.nonStringBindableParams.has(name)) {
+      if (m.nonStringBindableInputs.has(name)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${name}' is multimodal/unstructured and cannot be bound from a path variable`,
           ),
         )
       }
-      if (!m.stringBindableParams.has(name)) {
+      if (!m.stringBindableInputs.has(name)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${name}' has a schema that is not bindable from a path variable (only String, Number, BigInt, Boolean, Literal, or branded variants thereof are supported)`,
@@ -1497,21 +1497,21 @@ const validateEndpoint = (
         )
       }
       seenQueryKeys.add(q.queryParam)
-      if (!(q.varName in m.params)) {
+      if (!(q.varName in m.input)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: query variable '${q.varName}' (from query parameter '${q.queryParam}') does not match any method parameter`,
           ),
         )
       }
-      if (m.nonStringBindableParams.has(q.varName)) {
+      if (m.nonStringBindableInputs.has(q.varName)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${q.varName}' is multimodal/unstructured and cannot be bound from a query parameter`,
           ),
         )
       }
-      if (!m.stringBindableParams.has(q.varName)) {
+      if (!m.stringBindableInputs.has(q.varName)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${q.varName}' has a schema that is not bindable from a query parameter`,
@@ -1539,21 +1539,21 @@ const validateEndpoint = (
         )
       }
       seenHeaderKeys.add(key)
-      if (!(h.varName in m.params)) {
+      if (!(h.varName in m.input)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: header variable '${h.varName}' (from header '${h.header}') does not match any method parameter`,
           ),
         )
       }
-      if (m.nonStringBindableParams.has(h.varName)) {
+      if (m.nonStringBindableInputs.has(h.varName)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${h.varName}' is multimodal/unstructured and cannot be bound from a header`,
           ),
         )
       }
-      if (!m.stringBindableParams.has(h.varName)) {
+      if (!m.stringBindableInputs.has(h.varName)) {
         return yield* Effect.fail(
           new HttpRouteError(
             `${ctx}: parameter '${h.varName}' has a schema that is not bindable from a header`,
@@ -1573,7 +1573,7 @@ const validateEndpoint = (
 
     // Body restrictions on bodyless verbs.
     if (isBodylessVerb(ep.verb)) {
-      for (const paramName of Object.keys(m.params)) {
+      for (const paramName of Object.keys(m.input)) {
         if (!seenSources.has(paramName)) {
           return yield* Effect.fail(
             new HttpRouteError(

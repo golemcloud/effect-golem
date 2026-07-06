@@ -22,15 +22,15 @@ const Person = Schema.Struct({
 
 const greet = defineMethod({
   name: "greet",
-  params: { person: Person, greeting: Schema.String },
-  success: Schema.String,
+  input: { person: Person, greeting: Schema.String },
+  returns: Schema.String,
   body: ({ person, greeting }) => Effect.succeed(`${greeting}, ${person.name} (${person.age})!`),
 })
 
 const ping = defineMethod({
   name: "ping",
-  params: {},
-  success: Schema.Void,
+  input: {},
+  returns: Schema.Void,
   body: () => Effect.void,
 })
 
@@ -98,15 +98,15 @@ describe("MethodCodec", () => {
 
 describe("Method pipeable combinators", () => {
   it("`method({...})` is pipeable (has a `.pipe` method)", () => {
-    const spec = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const spec = method({ input: { by: Schema.Number }, returns: Schema.Number })
     expect(typeof spec.pipe).toBe("function")
   })
 
   it("`defineMethod({...})` is pipeable (has a `.pipe` method)", () => {
     const m = defineMethod({
       name: "addOne",
-      params: { by: Schema.Number },
-      success: Schema.Number,
+      input: { by: Schema.Number },
+      returns: Schema.Number,
       body: ({ by }) => Effect.succeed(by + 1),
     })
     expect(typeof m.pipe).toBe("function")
@@ -117,14 +117,14 @@ describe("Method pipeable combinators", () => {
   })
 
   it("`.pipe(withDescription(...))` sets description without mutating the input", () => {
-    const base = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const base = method({ input: { by: Schema.Number }, returns: Schema.Number })
     const piped = base.pipe(withDescription("Add by"))
     expect(base.description).toBeUndefined()
     expect(piped.description).toBe("Add by")
   })
 
   it("`.pipe(withPromptHint(...))` sets promptHint without mutating the input", () => {
-    const base = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const base = method({ input: { by: Schema.Number }, returns: Schema.Number })
     const piped = base.pipe(withPromptHint("Increment by `by`"))
     expect(base.promptHint).toBeUndefined()
     expect(piped.promptHint).toBe("Increment by `by`")
@@ -132,8 +132,8 @@ describe("Method pipeable combinators", () => {
 
   it("`.pipe(withHttp(...))` appends endpoints, preserving any pre-existing ones", () => {
     const base = method({
-      params: { by: Schema.Number },
-      success: Schema.Number,
+      input: { by: Schema.Number },
+      returns: Schema.Number,
       http: [post("/add")],
     })
     const piped = base.pipe(withHttp(get("/add?by={by}")))
@@ -146,8 +146,8 @@ describe("Method pipeable combinators", () => {
     // Happy path: every endpoint binding name (`id`, `q`) appears in
     // the method's `params`, so this typechecks AND runs.
     const piped = method({
-      params: { id: Schema.String, q: Schema.String },
-      success: Schema.String,
+      input: { id: Schema.String, q: Schema.String },
+      returns: Schema.String,
     }).pipe(withHttp(get("/items/{id}?q={q}")))
     expect(piped.http?.length).toBe(1)
     expect(piped.http?.[0]?.queryVars).toEqual([{ queryParam: "q", varName: "q" }])
@@ -156,24 +156,24 @@ describe("Method pipeable combinators", () => {
     // to a name NOT in `params` is a compile-time error. The
     // `@ts-expect-error` directive asserts the type checker rejects it.
     method({
-      params: { id: Schema.String },
-      success: Schema.String,
+      input: { id: Schema.String },
+      returns: Schema.String,
       // @ts-expect-error — endpoint binds `nope`, which is not a param
     }).pipe(withHttp(get("/items/{id}/{nope}")))
   })
 
   it("multi-combinator chain produces the same MethodSpec as the literal form", () => {
     const piped = method({
-      params: { by: Schema.Number },
-      success: Schema.Number,
+      input: { by: Schema.Number },
+      returns: Schema.Number,
     }).pipe(
       withHttp(post("/add"), get("/add?by={by}")),
       withDescription("Add by"),
       withPromptHint("Increment by `by`"),
     )
     const literal = method({
-      params: { by: Schema.Number },
-      success: Schema.Number,
+      input: { by: Schema.Number },
+      returns: Schema.Number,
       description: "Add by",
       promptHint: "Increment by `by`",
       http: [post("/add"), get("/add?by={by}")],
@@ -209,11 +209,11 @@ describe("MethodCodec — typed errors", () => {
     Effect.gen(function* () {
       const noErr = yield* compileMethodSpec(
         "noErr",
-        method({ params: {}, success: Schema.Number }),
+        method({ input: {}, returns: Schema.Number }),
       )
       const withErr = yield* compileMethodSpec(
         "withErr",
-        method({ params: {}, success: Schema.Number, error: NotFoundError }),
+        method({ input: {}, returns: Schema.Number, error: NotFoundError }),
       )
       expect(noErr.errorWrapped).toBe(false)
       expect(withErr.errorWrapped).toBe(true)
@@ -228,8 +228,8 @@ describe("MethodCodec — typed errors", () => {
       Effect.gen(function* () {
         const lookup = defineMethod({
           name: "lookup",
-          params: { id: Schema.String },
-          success: Schema.Number,
+          input: { id: Schema.String },
+          returns: Schema.Number,
           error: NotFoundError,
           body: ({ id }) =>
             id === "ok"
@@ -277,8 +277,8 @@ describe("MethodCodec — typed errors", () => {
     Effect.gen(function* () {
       const cmd = defineMethod({
         name: "cmd",
-        params: { fail: Schema.Boolean },
-        success: Schema.Void,
+        input: { fail: Schema.Boolean },
+        returns: Schema.Void,
         error: NotFoundError,
         body: ({ fail }) =>
           fail ? Effect.fail({ _tag: "NotFoundError" as const, resource: "always" }) : Effect.void,
@@ -317,8 +317,8 @@ describe("MethodCodec — typed errors", () => {
     Effect.gen(function* () {
       const boom = defineMethod({
         name: "boom",
-        params: {},
-        success: Schema.Number,
+        input: {},
+        returns: Schema.Number,
         error: NotFoundError,
         body: () => Effect.die(new Error("kaboom")),
       })

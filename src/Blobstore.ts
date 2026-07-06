@@ -12,9 +12,9 @@
  *   name: "Photos",
  *   id: { name: Schema.String },
  *   methods: {
- *     upload: method({ params: { key: Schema.String, body: Schema.Uint8Array }, success: Schema.Void }),
- *     download: method({ params: { key: Schema.String }, success: Schema.Uint8Array }),
- *     list: method({ params: {}, success: Schema.Array(Schema.String) }),
+ *     upload: method({ input: { key: Schema.String, body: Schema.Uint8Array }, returns: Schema.Void }),
+ *     download: method({ input: { key: Schema.String }, returns: Schema.Uint8Array }),
+ *     list: method({ input: {}, returns: Schema.Array(Schema.String) }),
  *   },
  *   impl: ({ name }) =>
  *     Effect.gen(function* () {

@@ -26,8 +26,8 @@ describe("multimodal()", () => {
   it.effect("emits a list<variant> schema with the multimodal role and one case per member", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
-        success: Schema.String,
+        input: { content: Content },
+        returns: Schema.String,
       })
       const mc = yield* compileMethodSpec("send", m)
       expect(mc.inputCodecs.length).toBe(1)
@@ -50,8 +50,8 @@ describe("multimodal()", () => {
   it.effect("round-trips a multimodal value through the compiled codec", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
-        success: Schema.Number,
+        input: { content: Content },
+        returns: Schema.Number,
       })
       const mc = yield* compileMethodSpec("count", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -82,8 +82,8 @@ describe("multimodal()", () => {
   it.effect("rejects non-sole multimodal parameters", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content, extra: Schema.String },
-        success: Schema.Void,
+        input: { content: Content, extra: Schema.String },
+        returns: Schema.Void,
       })
       const exit = yield* Effect.exit(compileMethodSpec("bad", m))
       expect(exit._tag).toBe("Failure")

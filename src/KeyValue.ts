@@ -21,8 +21,8 @@
  *   name: "Users",
  *   id: { name: Schema.String },
  *   methods: {
- *     put: method({ params: { id: Schema.String, name: Schema.String }, success: Schema.Void }),
- *     get: method({ params: { id: Schema.String }, success: Schema.Option(User) }),
+ *     put: method({ input: { id: Schema.String, name: Schema.String }, returns: Schema.Void }),
+ *     get: method({ input: { id: Schema.String }, returns: Schema.Option(User) }),
  *   },
  *   impl: () =>
  *     Effect.gen(function* () {

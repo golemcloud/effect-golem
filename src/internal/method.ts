@@ -60,15 +60,15 @@ export type ParamInputType<P extends MethodParam> =
  * @since 1.5.0
  * @category models
  */
-export type MethodInput<Params extends MethodParams> = {
-  readonly [K in keyof Params]: ParamInputType<Params[K]>
+export type MethodInput<Input extends MethodParams> = {
+  readonly [K in keyof Input]: ParamInputType<Input[K]>
 }
 
 declare const methodHasHttpBrand: unique symbol
 
 /**
  * A `MethodSpec` describes a method's wire contract — its named input
- * parameters, success type, and typed failure type — *without* an
+ * parameters, returns type, and typed failure type — *without* an
  * implementation.
  *
  * Used inside `defineAgent({ methods })` so that the agent type can be
@@ -100,15 +100,15 @@ declare const methodHasHttpBrand: unique symbol
  * @category models
  */
 export interface MethodSpec<
-  in out Params extends MethodParams,
+  in out Input extends MethodParams,
   in out Success extends Schema.Top,
   in out Error extends Schema.Top,
   HasHttp extends boolean = boolean,
 >
   extends Pipeable.Pipeable {
   readonly [methodHasHttpBrand]?: HasHttp
-  readonly params: Params
-  readonly success: Success
+  readonly input: Input
+  readonly returns: Success
   readonly error: Error
   /** Free-text description, surfaced as `agent-method.description`. */
   readonly description?: string
@@ -117,15 +117,15 @@ export interface MethodSpec<
   /**
    * Optional list of HTTP endpoints exposing this method through the
    * Golem host. Compiled to `agent-method.http-endpoint`. Each endpoint
-   * may bind path / query / header variables to entries of `Params`;
-   * type-level constraint: every binding name must be a `keyof Params`
+   * may bind path / query / header variables to entries of `Input`;
+   * type-level constraint: every binding name must be a `keyof Input`
    * AND must be statically eligible for path/query/header binding (i.e.
    * not a {@link Multimodal} or {@link ElementSpec} carrier — see
    * {@link BindableKeys}). Full string-bindability (rejecting
    * `Schema.Struct` etc.) is enforced at registration time by the
    * runtime validators in `Http.ts`.
    */
-  readonly http?: ReadonlyArray<EndpointDef<BindableKeys<Params>>>
+  readonly http?: ReadonlyArray<EndpointDef<BindableKeys<Input>>>
 }
 
 /**
@@ -140,14 +140,14 @@ export interface MethodSpec<
  *
  * **Input fields**
  *
- * - `params` — a `Record<string, MethodParam>` describing the method's
+ * - `input` — a `Record<string, MethodParam>` describing the method's
  *   inputs. Each entry is one of: a `Schema.Top` (regular value
  *   parameter), an `ElementSpec<...>` ({@link UnstructuredText} /
  *   {@link UnstructuredBinary} unstructured-data parameter), or a
  *   {@link Multimodal} (multi-element parameter). The keys become the
  *   `data-schema` element names emitted into the WIT metadata.
  *
- * - `success` — a `Schema.Top` describing the method's success value
+ * - `returns` — a `Schema.Top` describing the method's returns value
  *   (the `A` of the resulting `Effect<A, E, R>`).
  *
  * - `error` *(optional)* — a `Schema.Top` describing typed failures
@@ -165,7 +165,7 @@ export interface MethodSpec<
  * - `http` *(optional)* — a `ReadonlyArray<EndpointDef<...>>`
  *   exposing this method through the host's HTTP server. Each
  *   endpoint's path / query / header bindings must reference an entry
- *   of `params` (enforced at the type level). Same facet as
+ *   of `input` (enforced at the type level). Same facet as
  *   {@link withHttp}; the literal form replaces, the combinator
  *   appends.
  *
@@ -179,8 +179,8 @@ export interface MethodSpec<
  * import { Http, method, Schema } from "effect-golem"
  *
  * const add = method({
- *   params: { by: Schema.Number },
- *   success: Schema.Number,
+ *   input: { by: Schema.Number },
+ *   returns: Schema.Number,
  *   error: Schema.String,
  *   description: "Add `by` to the counter",
  *   promptHint: "Use this to increment the counter by a number",
@@ -193,7 +193,7 @@ export interface MethodSpec<
  * ```ts
  * import { Http, method, Schema, withDescription, withHttp } from "effect-golem"
  *
- * method({ params: { by: Schema.Number }, success: Schema.Number }).pipe(
+ * method({ input: { by: Schema.Number }, returns: Schema.Number }).pipe(
  *   withHttp(Http.post("/add"), Http.get("/add?by={by}")),
  *   withDescription("Add `by` to the counter"),
  * )
@@ -205,10 +205,10 @@ export interface MethodSpec<
  * is validated independently by the type system. For each endpoint:
  *
  * - Every binding `{var}` (path / query / header) must reference a
- *   key of `params` AND that key must be statically eligible for
+ *   key of `input` AND that key must be statically eligible for
  *   binding (i.e. NOT a {@link Multimodal} or {@link ElementSpec}
  *   carrier — see `BindableKeys`). Misnamed bindings produce a normal
- *   "no such property" error on `EndpointDef<BindableKeys<Params>>`.
+ *   "no such property" error on `EndpointDef<BindableKeys<Input>>`.
  * - A method parameter may be bound from at most one source within
  *   the same endpoint — enforced via the structured `EndpointBound`
  *   phantom on `EndpointDef`.
@@ -217,7 +217,7 @@ export interface MethodSpec<
  *   phantom on `EndpointDef`.
  * - `Http.get(...)` / `Http.head(...)` shorthands are tagged
  *   `"bodyless"` and rejected at compile time when the endpoint's
- *   bound-var union does NOT cover every key of `params` — there is
+ *   bound-var union does NOT cover every key of `input` — there is
  *   no request body in which to deliver an unbound parameter.
  *
  * On any of these violations, the type-level helper substitutes the
@@ -245,7 +245,7 @@ export interface MethodSpec<
  *   - destructure its `EndpointDef<V, K, B, HN>` to recover the
  *     bound-vars union, the kind, the structured `Bound` slot AND the
  *     header-names tuple;
- *   - if `K extends "bodyless"` and `Exclude<keyof Params & string, V>`
+ *   - if `K extends "bodyless"` and `Exclude<keyof Input & string, V>`
  *     is non-empty, surface an {@link Invalid} naming the missing
  *     parameter — bodyless verbs (`GET` / `HEAD`) have no request
  *     body in which to deliver an unbound value;
@@ -258,16 +258,16 @@ export interface MethodSpec<
  *   - otherwise pass the original element type through unchanged.
  *
  * The `Eps` array constraint already restricts each endpoint to
- * `EndpointDef<BindableKeys<Params>>` — multimodal / unstructured
- * params are rejected before any of the three checks is tried.
+ * `EndpointDef<BindableKeys<Input>>` — multimodal / unstructured
+ * input are rejected before any of the three checks is tried.
  */
-type ValidateEndpointsTuple<Eps extends ReadonlyArray<EndpointDef<string>>, Params> = {
+type ValidateEndpointsTuple<Eps extends ReadonlyArray<EndpointDef<string>>, Input> = {
   readonly [K in keyof Eps]: Eps[K] extends EndpointDef<infer V, infer Kind, infer B, infer HN>
     ? Kind extends "bodyless"
-      ? [Exclude<keyof Params & string, V>] extends [never]
+      ? [Exclude<keyof Input & string, V>] extends [never]
         ? ValidateEndpointStructure<Eps[K], B, HN>
         : Invalid<`GET/HEAD endpoint cannot have unbound param '${Exclude<
-            keyof Params & string,
+            keyof Input & string,
             V
           > &
             string}' (only path / query / header bindings are allowed because there is no request body)`>
@@ -316,29 +316,29 @@ type IsNonEmptyTuple<T extends ReadonlyArray<unknown>> = T extends readonly [
 
 export const method: {
   <
-    const Params extends MethodParams,
+    const Input extends MethodParams,
     Success extends Schema.Top,
     Error extends Schema.Top,
-    const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Params>>> = readonly [],
+    const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Input>>> = readonly [],
   >(spec: {
-    readonly params: Params
-    readonly success: Success
+    readonly input: Input
+    readonly returns: Success
     readonly error: Error
     readonly description?: string
     readonly promptHint?: string
-    readonly http?: ValidateEndpointsTuple<Eps, Params>
-  }): MethodSpec<Params, Success, Error, IsNonEmptyTuple<Eps>>
+    readonly http?: ValidateEndpointsTuple<Eps, Input>
+  }): MethodSpec<Input, Success, Error, IsNonEmptyTuple<Eps>>
   <
-    const Params extends MethodParams,
+    const Input extends MethodParams,
     Success extends Schema.Top,
-    const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Params>>> = readonly [],
+    const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Input>>> = readonly [],
   >(spec: {
-    readonly params: Params
-    readonly success: Success
+    readonly input: Input
+    readonly returns: Success
     readonly description?: string
     readonly promptHint?: string
-    readonly http?: ValidateEndpointsTuple<Eps, Params>
-  }): MethodSpec<Params, Success, typeof Schema.Void, IsNonEmptyTuple<Eps>>
+    readonly http?: ValidateEndpointsTuple<Eps, Input>
+  }): MethodSpec<Input, Success, typeof Schema.Void, IsNonEmptyTuple<Eps>>
 } = (spec: any): any => withPipe({ error: Schema.Void, ...spec })
 
 // ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ export const method: {
 // so users can compose them with the canonical Effect `.pipe(...)`
 // style, e.g.:
 //
-//   method({ params: { by: Schema.Number }, success: Schema.Number }).pipe(
+//   method({ input: { by: Schema.Number }, returns: Schema.Number }).pipe(
 //     Method.withHttp(Http.post("/add"), Http.get("/add?by={by}")),
 //     Method.withDescription("Add by to the counter"),
 //     Method.withPromptHint("Increment by `by`"),
@@ -359,20 +359,20 @@ export const method: {
 // working unchanged.
 // ---------------------------------------------------------------------------
 
-// `MethodSpec<Params, ...>` is `in out` invariant in its type
+// `MethodSpec<Input, ...>` is `in out` invariant in its type
 // parameters, so `MethodSpec<{ by: Schema.Number }, ...>` is NOT
 // assignable to `MethodSpec<MethodParams, ...>` even though the
 // constituent types are subtypes. The combinators below therefore
 // constrain `T extends MethodSpec<any, any, any>` (which TS bypasses
 // for variance) and use a *separate* structural intersection on
-// `params` to enforce binding correctness for `withHttp`.
+// `input` to enforce binding correctness for `withHttp`.
 
 /**
  * Append HTTP endpoints to a `MethodSpec`. The endpoints' bindings —
  * path variables, query variables, and headers — must reference the
  * spec's existing parameter names; this is enforced by intersecting
- * the input spec type with `{ params: Record<V, unknown> }`, which
- * makes TypeScript reject specs whose params record is missing any
+ * the input spec type with `{ input: Record<V, unknown> }`, which
+ * makes TypeScript reject specs whose input record is missing any
  * binding. Endpoints already declared on the spec are preserved; the
  * new ones are appended.
  *
@@ -386,7 +386,7 @@ export const method: {
 export const withHttp =
   <V extends string>(...endpoints: ReadonlyArray<EndpointDef<V>>) =>
   <T extends MethodSpec<any, any, any, any>>(
-    spec: T & { readonly params: Readonly<Record<V, unknown>> },
+    spec: T & { readonly input: Readonly<Record<V, unknown>> },
   ): T extends MethodSpec<infer P, infer Su, infer Er, infer _H>
     ? // `withHttp` only matters at the type level when the endpoint
       // tuple is non-empty (the runtime check in `validateAgentHttp`
@@ -396,8 +396,8 @@ export const withHttp =
       // that modifier breaks V inference (it tightens `EndpointDef<V>`
       // capture so V no longer flows from the endpoint's path
       // variables, which would silently drop the
-      // "binding-not-in-params" rejection enforced via the `spec
-      // params` constraint above). Always-flip-to-true is acceptable
+      // "binding-not-in-input" rejection enforced via the `spec
+      // input` constraint above). Always-flip-to-true is acceptable
       // because the runtime check ignores empty `withHttp()` calls
       // anyway, and `withHttp()` with zero args is a no-op users do
       // not actually write.
@@ -407,7 +407,7 @@ export const withHttp =
       ...spec,
       http: [
         ...(spec.http ?? []),
-        ...(endpoints as unknown as ReadonlyArray<EndpointDef<BindableKeys<T["params"]>>>),
+        ...(endpoints as unknown as ReadonlyArray<EndpointDef<BindableKeys<T["input"]>>>),
       ],
     }) as never
 
@@ -458,13 +458,13 @@ export const withPromptHint =
  * @category models
  */
 export interface Method<
-  in out Params extends MethodParams,
+  in out Input extends MethodParams,
   in out Success extends Schema.Top,
   in out Error extends Schema.Top,
   out R,
-> extends MethodSpec<Params, Success, Error> {
+> extends MethodSpec<Input, Success, Error> {
   readonly name: string
-  readonly body: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>
+  readonly body: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], Error["Type"], R>
 }
 
 /**
@@ -475,28 +475,28 @@ export interface Method<
  */
 export const defineMethod: {
   <
-    const Params extends MethodParams,
+    const Input extends MethodParams,
     Success extends Schema.Top,
     Error extends Schema.Top,
     R,
   >(definition: {
     readonly name: string
-    readonly params: Params
-    readonly success: Success
+    readonly input: Input
+    readonly returns: Success
     readonly error: Error
-    readonly body: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>
-  }): Method<Params, Success, Error, R>
-  <const Params extends MethodParams, Success extends Schema.Top, R>(definition: {
+    readonly body: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], Error["Type"], R>
+  }): Method<Input, Success, Error, R>
+  <const Input extends MethodParams, Success extends Schema.Top, R>(definition: {
     readonly name: string
-    readonly params: Params
-    readonly success: Success
-    readonly body: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], never, R>
-  }): Method<Params, Success, typeof Schema.Void, R>
+    readonly input: Input
+    readonly returns: Success
+    readonly body: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], never, R>
+  }): Method<Input, Success, typeof Schema.Void, R>
 } = (definition: any): any => withPipe({ error: Schema.Void, ...definition })
 
 /**
  * A handler implementing a `MethodSpec`: takes the decoded input record,
- * returns an Effect of the success/error types declared by the spec.
+ * returns an Effect of the returns/error types declared by the spec.
  *
  * The required-services slot allows {@link Principal}, {@link SelfAgentId},
  * any host-service tag bundled into `HostLive` (so `yield*
@@ -509,9 +509,9 @@ export const defineMethod: {
  * @category models
  */
 export type Handler<S extends MethodSpec<any, any, any>, CfgTag = never> = (
-  input: MethodInput<S["params"]>,
+  input: MethodInput<S["input"]>,
 ) => Effect.Effect<
-  S["success"]["Type"],
+  S["returns"]["Type"],
   S["error"]["Type"],
   Principal | SelfAgentId | HostServices | CfgTag
 >
@@ -525,13 +525,13 @@ export type Handler<S extends MethodSpec<any, any, any>, CfgTag = never> = (
  * @category operations
  */
 export const invoke = <
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
   R,
 >(
-  m: Method<Params, Success, Error, R>,
-  input: MethodInput<Params>,
+  m: Method<Input, Success, Error, R>,
+  input: MethodInput<Input>,
 ): Effect.Effect<Success["Type"], Error["Type"], R> => m.body(input)
 
 /**
@@ -563,12 +563,12 @@ export interface ParamCodec {
  * @category models
  */
 export interface MethodCodec<
-  in out Params extends MethodParams,
+  in out Input extends MethodParams,
   in out Success extends Schema.Top,
   in out Error extends Schema.Top,
 > {
   readonly name: string
-  readonly spec: MethodSpec<Params, Success, Error>
+  readonly spec: MethodSpec<Input, Success, Error>
   /** Per-parameter codecs in declaration order (drives the input record order). */
   readonly inputCodecs: ReadonlyArray<ParamCodec>
   /**
@@ -587,8 +587,8 @@ export interface MethodCodec<
    */
   readonly errorWrapped: boolean
   /**
-   * `true` when `spec.success` is `Schema.Void`. With `errorWrapped`, the wire
-   * `result<_, E>` uses an empty-record stand-in for the success arm, and the
+   * `true` when `spec.returns` is `Schema.Void`. With `errorWrapped`, the wire
+   * `result<_, E>` uses an empty-record stand-in for the returns arm, and the
    * SDK substitutes `undefined` ↔ `{}` automatically.
    */
   readonly successVoid: boolean
@@ -607,10 +607,10 @@ const isVoidSchema = (s: Schema.Top): boolean => s.ast._tag === "Void"
  */
 export const compileParamCodecs = (
   context: string,
-  params: MethodParams,
+  input: MethodParams,
 ): Effect.Effect<ReadonlyArray<ParamCodec>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
-    const paramEntries = Object.entries(params)
+    const paramEntries = Object.entries(input)
     if (paramEntries.some(([, p]) => isMultimodal(p)) && paramEntries.length > 1) {
       return yield* Effect.fail<UnsupportedSchemaError>({
         _tag: "UnsupportedSchemaError",
@@ -635,34 +635,34 @@ export const compileParamCodecs = (
   })
 
 /**
- * Compile a method spec (name + params + success + error) to a MethodCodec.
+ * Compile a method spec (name + input + returns + error) to a MethodCodec.
  *
  * @since 1.5.0
  * @category codecs
  */
 export const compileMethodSpec = <
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
 >(
   name: string,
-  spec: MethodSpec<Params, Success, Error>,
-): Effect.Effect<MethodCodec<Params, Success, Error>, UnsupportedSchemaError> =>
+  spec: MethodSpec<Input, Success, Error>,
+): Effect.Effect<MethodCodec<Input, Success, Error>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
     const errorWrapped = !isVoidSchema(spec.error)
-    const successVoid = isVoidSchema(spec.success)
-    // When the method declares a non-Void typed error, fold success+error into
+    const successVoid = isVoidSchema(spec.returns)
+    // When the method declares a non-Void typed error, fold returns+error into
     // a single `result<S, E>` (the only channel for user-typed errors;
     // `AgentError` is reserved for host/SDK-level conditions). The schema model
-    // has no free-standing unit type, so a void success uses an empty-record
+    // has no free-standing unit type, so a void returns uses an empty-record
     // stand-in and the SDK substitutes `undefined` ↔ `{}` on encode/decode.
     const responseSchema: Schema.Top = errorWrapped
       ? (Schema.Result(
-          successVoid ? (Schema.Struct({}) as Schema.Top) : spec.success,
+          successVoid ? (Schema.Struct({}) as Schema.Top) : spec.returns,
           spec.error,
         ) as unknown as Schema.Top)
-      : spec.success
-    const output: MethodCodec<Params, Success, Error>["output"] =
+      : spec.returns
+    const output: MethodCodec<Input, Success, Error>["output"] =
       !errorWrapped && successVoid
         ? { tag: "unit" }
         : { tag: "single", codec: (yield* toWitCodec(responseSchema)) as WitCodec<Schema.Top> }
@@ -670,7 +670,7 @@ export const compileMethodSpec = <
     // A multimodal parameter projects to a `list<variant>` schema node and is
     // only valid as the SOLE parameter of a method/constructor — enforced
     // inside `compileParamCodecs`.
-    const inputCodecs = yield* compileParamCodecs(name, spec.params)
+    const inputCodecs = yield* compileParamCodecs(name, spec.input)
     return { name, spec, inputCodecs, output, errorWrapped, successVoid }
   })
 
@@ -681,13 +681,13 @@ export const compileMethodSpec = <
  * @category codecs
  */
 export const compileMethod = <
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
   R,
 >(
-  m: Method<Params, Success, Error, R>,
-): Effect.Effect<MethodCodec<Params, Success, Error>, UnsupportedSchemaError> =>
+  m: Method<Input, Success, Error, R>,
+): Effect.Effect<MethodCodec<Input, Success, Error>, UnsupportedSchemaError> =>
   compileMethodSpec(m.name, m)
 
 /**
@@ -712,25 +712,25 @@ export class InvalidDataValueError {
  *   encoded into a single-element `tuple` (or empty tuple for void).
  *
  * - `errorWrapped === true`: the handler's typed `E` is folded into
- *   `Result.fail(e)` via `Effect.matchEffect`; success becomes
+ *   `Result.fail(e)` via `Effect.matchEffect`; returns becomes
  *   `Result.succeed(s)`. The `Result` is encoded through
- *   `mc.outputElement`, whose codec is `Schema.Result(success, error)`.
+ *   `mc.outputElement`, whose codec is `Schema.Result(returns, error)`.
  *   `AgentError.custom-error` is NOT used — typed user errors travel
- *   on the success channel as a component-model `result<S, E>`.
+ *   on the returns channel as a component-model `result<S, E>`.
  *
  * Defects (`Effect.die`) and SDK-internal failures continue to propagate
  * untouched — they are not user-domain errors and surface as host-level
  * traps / `remote-internal-error`.
  */
 const runHandlerAndEncode = <
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
   R,
 >(
-  mc: MethodCodec<Params, Success, Error>,
-  handler: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>,
-  decoded: MethodInput<Params>,
+  mc: MethodCodec<Input, Success, Error>,
+  handler: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], Error["Type"], R>,
+  decoded: MethodInput<Input>,
 ): Effect.Effect<
   SchemaValueTree | undefined,
   Error["Type"] | Schema.SchemaError | InvalidDataValueError,
@@ -745,7 +745,7 @@ const runHandlerAndEncode = <
           onFailure: (e: Error["Type"]) =>
             Effect.succeed(Result.fail(e) as Result.Result<unknown, Error["Type"]>),
           onSuccess: (s: Success["Type"]) =>
-            // Substitute `{}` for a void success so it round-trips through the
+            // Substitute `{}` for a void returns so it round-trips through the
             // empty-record stand-in compiled into `Schema.Result(Schema.Struct({}), error)`.
             Effect.succeed(
               Result.succeed(mc.successVoid ? {} : s) as Result.Result<unknown, Error["Type"]>,
@@ -778,7 +778,7 @@ const runHandlerAndEncode = <
  *
  * Input is the `record` value whose fields line up positionally with the
  * declared parameters. When the method declares a non-Void typed error, the
- * output value is a `result<S, E>` carrying either the success value or the
+ * output value is a `result<S, E>` carrying either the returns value or the
  * typed failure (the ONLY channel for user-typed errors; `AgentError` is
  * reserved for host/SDK-level conditions).
  *
@@ -786,13 +786,13 @@ const runHandlerAndEncode = <
  * @category operations
  */
 export const invokeSchemaValue = <
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
   R,
 >(
-  mc: MethodCodec<Params, Success, Error>,
-  handler: (input: MethodInput<Params>) => Effect.Effect<Success["Type"], Error["Type"], R>,
+  mc: MethodCodec<Input, Success, Error>,
+  handler: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], Error["Type"], R>,
   input: SchemaValueTree,
 ): Effect.Effect<
   SchemaValueTree | undefined,
@@ -823,7 +823,7 @@ export const invokeSchemaValue = <
         )(fields[i]!)
       }
     }
-    return yield* runHandlerAndEncode(mc, handler, decoded as MethodInput<Params>)
+    return yield* runHandlerAndEncode(mc, handler, decoded as MethodInput<Input>)
   }) as Effect.Effect<
     SchemaValueTree | undefined,
     Error["Type"] | Schema.SchemaError | InvalidDataValueError,

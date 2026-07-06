@@ -167,15 +167,15 @@ export interface ScheduledInvocation {
  * @category models
  */
 export interface RemoteMethod<
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
 > {
-  (input: MethodInput<Params>): Effect.Effect<Success["Type"], RemoteCallError | Error["Type"]>
-  readonly trigger: (input: MethodInput<Params>) => Effect.Effect<void, RemoteCallError>
+  (input: MethodInput<Input>): Effect.Effect<Success["Type"], RemoteCallError | Error["Type"]>
+  readonly trigger: (input: MethodInput<Input>) => Effect.Effect<void, RemoteCallError>
   readonly schedule: (
     scheduledAt: AgentHost.Datetime,
-    input: MethodInput<Params>,
+    input: MethodInput<Input>,
   ) => Effect.Effect<ScheduledInvocation, RemoteCallError>
 }
 

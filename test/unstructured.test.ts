@@ -19,8 +19,8 @@ describe("UnstructuredText element", () => {
   it.effect("emits an unstructured-text variant schema and round-trips inline text", () =>
     Effect.gen(function* () {
       const echo = method({
-        params: { msg: UnstructuredText() },
-        success: Schema.String,
+        input: { msg: UnstructuredText() },
+        returns: Schema.String,
       })
       const mc = yield* compileMethodSpec("echo", echo)
       expect(mc.inputCodecs.length).toBe(1)
@@ -52,8 +52,8 @@ describe("UnstructuredText element", () => {
   it.effect("carries restrictions through to the text schema node", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { msg: UnstructuredText({ restrictions: [{ languageCode: "en" }] }) },
-        success: Schema.Void,
+        input: { msg: UnstructuredText({ restrictions: [{ languageCode: "en" }] }) },
+        returns: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const root = mc.inputCodecs[0]!.codec.graph.root
@@ -68,8 +68,8 @@ describe("UnstructuredText element", () => {
   it.effect("round-trips a url-style text reference", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { msg: UnstructuredText() },
-        success: Schema.String,
+        input: { msg: UnstructuredText() },
+        returns: Schema.String,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -88,8 +88,8 @@ describe("UnstructuredText element", () => {
   it.effect("rejects a wrong-kind value at decode time", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { msg: UnstructuredText() },
-        success: Schema.Void,
+        input: { msg: UnstructuredText() },
+        returns: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -106,8 +106,8 @@ describe("UnstructuredBinary element", () => {
   it.effect("emits an unstructured-binary variant schema with restrictions", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
-        success: Schema.Void,
+        input: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
+        returns: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const root = mc.inputCodecs[0]!.codec.graph.root
@@ -123,8 +123,8 @@ describe("UnstructuredBinary element", () => {
   it.effect("round-trips inline + url binary references", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { blob: UnstructuredBinary() },
-        success: Schema.String,
+        input: { blob: UnstructuredBinary() },
+        returns: Schema.String,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -161,8 +161,8 @@ describe("UnstructuredBinary element", () => {
   it.effect("rejects an inline binary whose mime type is outside the allow-list", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
-        success: Schema.Void,
+        input: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
+        returns: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec

@@ -45,8 +45,8 @@
  *   http: Http.mount("/watchers/{name}", { webhookSuffix: "/payments" }),
  *   methods: {
  *     waitForPayment: method({
- *       params: {},
- *       success: PaymentEvent,
+ *       input: {},
+ *       returns: PaymentEvent,
  *       http: [Http.post("/wait")],
  *     }),
  *   },
