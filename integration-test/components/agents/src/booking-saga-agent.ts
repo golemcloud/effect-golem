@@ -54,14 +54,14 @@ export const BookingSaga = defineAgent({
   name: "BookingSaga",
   description: "Three-step booking saga that exercises Saga.fallibleTransaction end-to-end",
   mode: "durable",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.define({
+  id: { name: Schema.String },
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({}),
     policy: Snapshot.policy.everyN(10),
   }),
   methods: {
     book: method({
-      params: {
+      input: {
         shouldFailAt: Schema.NullOr(StepSchema),
         compFailsAt: Schema.NullOr(Schema.Literal("hotel")),
       },
@@ -70,7 +70,7 @@ export const BookingSaga = defineAgent({
         "Runs the booking saga. Optional shouldFailAt forces a typed failure at the named step.",
     }),
     trace: method({
-      params: {},
+      input: {},
       success: Schema.Array(Schema.String),
       description: "Returns the trace recorded by the most recent book() call.",
     }),
