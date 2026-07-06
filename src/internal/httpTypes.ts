@@ -323,7 +323,7 @@ export type ValidEndpointPath<S extends string> = string extends S ? S : Validat
 // `[any] extends [ElementSpec<…>]` both evaluate to `true`, which
 // would collapse `BindableKeys<any>` to `never` and silently break
 // the structural compatibility check between `Method<...>` (which
-// extends `MethodSpec<Params, ...>`) and `MethodSpec<any, any, any>`
+// extends `MethodSpec<Input, ...>`) and `MethodSpec<any, any, any>`
 // — the constraint `T extends MethodSpec<any, any, any>` used by
 // `withDescription` / `withPromptHint` would then reject every
 // `Method`.
@@ -347,7 +347,7 @@ type IsBindable<V> =
         : true
 
 /**
- * Subset of `keyof C & string` whose value is statically eligible
+ * Subset of `keyof Id & string` whose value is statically eligible
  * for binding from a string source (path / query / header) — i.e.
  * NOT a {@link Multimodal} carrier and NOT an {@link ElementSpec}
  * carrier. Full string-bindability (rejecting `Schema.Struct` etc.)
@@ -356,17 +356,17 @@ type IsBindable<V> =
  * @since 1.5.0
  * @category models
  */
-export type BindableKeys<C> = {
-  [K in keyof C & string]: IsBindable<C[K]> extends true ? K : never
-}[keyof C & string]
+export type BindableKeys<Id> = {
+  [K in keyof Id & string]: IsBindable<Id[K]> extends true ? K : never
+}[keyof Id & string]
 
 // ---------------------------------------------------------------------------
-// MountDefCovering — every constructor param must appear as a {var} in the mount path
+// MountDefCovering — every id field must appear as a {var} in the mount path
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves to `MountDef<V>` when every `keyof C & string` is present
- * in `V` (i.e. the mount path covers every constructor parameter),
+ * Resolves to `MountDef<V>` when every `keyof Id & string` is present
+ * in `V` (i.e. the mount path covers every id field),
  * else to `MountDef<V> & Invalid<"…">`.
  *
  * The intersection trick is what makes this useful at the
@@ -378,19 +378,19 @@ export type BindableKeys<C> = {
  * can satisfy — so the assignment fails with a readable message
  * instead of a silent over-acceptance.
  *
- * Mirrors (defence-in-depth) the runtime "every constructor param
+ * Mirrors (defence-in-depth) the runtime "every id field
  * covered" loop in `validateMount` (Http.ts L1238-1246).
  *
  * @since 1.5.0
  * @category models
  */
-export type MountDefCovering<C, V extends string, W extends string = never> =
-  Exclude<keyof C & string, V> extends never
+export type MountDefCovering<Id, V extends string, W extends string = never> =
+  Exclude<keyof Id & string, V> extends never
     ? MountDef<V, W>
-    : MountDef<V, W> & Invalid<`mount path missing var '${Exclude<keyof C & string, V> & string}'`>
+    : MountDef<V, W> & Invalid<`mount path missing var '${Exclude<keyof Id & string, V> & string}'`>
 
 // ---------------------------------------------------------------------------
-// WebhookVarsValid — every webhook-suffix {var} must match a bindable constructor param
+// WebhookVarsValid — every webhook-suffix {var} must match a bindable id field
 // ---------------------------------------------------------------------------
 
 declare const WebhookVarsValidBrand: unique symbol
@@ -400,7 +400,7 @@ declare const WebhookVarsValidBrand: unique symbol
  * (a no-op intersection at the assignment site) when every `{var}` in
  * the webhook suffix:
  *
- * - is a constructor-parameter name (`keyof C & string`); AND
+ * - is an id field name (`keyof Id & string`); AND
  * - is statically eligible for binding from a string source (i.e. NOT
  *   a {@link Multimodal} or {@link ElementSpec} carrier — see
  *   {@link BindableKeys}).
@@ -415,16 +415,16 @@ declare const WebhookVarsValidBrand: unique symbol
  * @since 1.5.0
  * @category models
  */
-export type WebhookVarsValid<C, WebhookVars extends string> = [WebhookVars] extends [never]
+export type WebhookVarsValid<Id, WebhookVars extends string> = [WebhookVars] extends [never]
   ? unknown
-  : Exclude<WebhookVars, BindableKeys<C>> extends never
+  : Exclude<WebhookVars, BindableKeys<Id>> extends never
     ? unknown
-    : Exclude<WebhookVars, keyof C & string> extends never
+    : Exclude<WebhookVars, keyof Id & string> extends never
       ? {
-          readonly [WebhookVarsValidBrand]: `webhook-suffix var '${Exclude<WebhookVars, BindableKeys<C>> & string}' refers to a multimodal/unstructured constructor param and cannot be bound from a path variable`
+          readonly [WebhookVarsValidBrand]: `webhook-suffix var '${Exclude<WebhookVars, BindableKeys<Id>> & string}' refers to a multimodal/unstructured id field and cannot be bound from a path variable`
         }
       : {
-          readonly [WebhookVarsValidBrand]: `webhook-suffix var '${Exclude<WebhookVars, keyof C & string> & string}' does not match any constructor parameter`
+          readonly [WebhookVarsValidBrand]: `webhook-suffix var '${Exclude<WebhookVars, keyof Id & string> & string}' does not match any id field`
         }
 
 // ---------------------------------------------------------------------------
@@ -667,7 +667,7 @@ export type HeaderKeysTuple<H> = [H[keyof H]] extends [never]
 //
 // `EndpointVars` (the first phantom on `EndpointDef`) is the union of
 // every name bound by the endpoint — path, query, AND header. So
-// `Exclude<keyof Params & string, EndpointVars> extends never`
+// `Exclude<keyof Input & string, EndpointVars> extends never`
 // expresses "every method parameter is bound somewhere on this
 // endpoint". When the endpoint's `Kind` is narrowed to `"bodyless"`
 // (only the `Http.get` / `Http.head` shorthands do this), an unbound
@@ -697,7 +697,7 @@ type BodylessLabel<K extends string> = K extends "bodyless" ? "GET/HEAD" : K
  * Maps each endpoint positionally — endpoints with different `Kind`
  * values and different bound-var sets in the same array are validated
  * independently. Endpoints whose `Kind` extends `"bodyless"` AND
- * whose bound-var union does NOT cover every key of `Params` are
+ * whose bound-var union does NOT cover every key of `Input` are
  * replaced with an {@link Invalid} carrier whose message names the
  * missing parameter(s); every other endpoint passes through
  * unchanged. Bodyful endpoints are always passed through (their
@@ -714,7 +714,7 @@ type BodylessLabel<K extends string> = K extends "bodyless" ? "GET/HEAD" : K
  */
 export type ValidateBodylessEndpoints<
   Endpoints extends ReadonlyArray<EndpointDef<string, EndpointKind, EndpointBound, unknown>>,
-  Params,
+  Input,
 > = {
   readonly [I in keyof Endpoints]: Endpoints[I] extends EndpointDef<
     infer Bound,
@@ -723,10 +723,10 @@ export type ValidateBodylessEndpoints<
     unknown
   >
     ? Kind extends "bodyless"
-      ? [Exclude<keyof Params & string, Bound>] extends [never]
+      ? [Exclude<keyof Input & string, Bound>] extends [never]
         ? Endpoints[I]
         : Invalid<`${BodylessLabel<Kind>} endpoint cannot have unbound param '${Exclude<
-            keyof Params & string,
+            keyof Input & string,
             Bound
           > &
             string}' (only path / query / header bindings are allowed because there is no request body)`>
@@ -750,7 +750,7 @@ export type ValidateBodylessEndpoints<
  */
 export type RequireValidBodylessEndpoints<
   Endpoints extends ReadonlyArray<EndpointDef<string, EndpointKind, EndpointBound, unknown>>,
-  Params,
+  Input,
 > = {
   readonly [I in keyof Endpoints]: Endpoints[I] extends EndpointDef<
     infer Bound,
@@ -759,10 +759,10 @@ export type RequireValidBodylessEndpoints<
     unknown
   >
     ? Kind extends "bodyless"
-      ? [Exclude<keyof Params & string, Bound>] extends [never]
+      ? [Exclude<keyof Input & string, Bound>] extends [never]
         ? unknown
         : Invalid<`${BodylessLabel<Kind>} endpoint cannot have unbound param '${Exclude<
-            keyof Params & string,
+            keyof Input & string,
             Bound
           > &
             string}' (only path / query / header bindings are allowed because there is no request body)`>

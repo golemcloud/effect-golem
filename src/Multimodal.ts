@@ -115,7 +115,7 @@ const compileMember = (
  *   ...,
  *   methods: {
  *     send: method({
- *       params: { content: Content },         // single multimodal param
+ *       input: { content: Content },         // single multimodal param
  *       success: Schema.String,
  *     }),
  *   },

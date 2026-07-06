@@ -20,7 +20,7 @@ describe("multimodal()", () => {
   it.effect("emits a multimodal DataSchema with one entry per case", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
+        input: { content: Content },
         success: Schema.String,
       })
       const mc = yield* compileMethodSpec("send", m)
@@ -36,7 +36,7 @@ describe("multimodal()", () => {
   it.effect("decodes a multimodal DataValue and re-encodes the result", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
+        input: { content: Content },
         success: Schema.Number,
       })
       const mc = yield* compileMethodSpec("count", m)
@@ -82,7 +82,7 @@ describe("multimodal()", () => {
   it.effect("rejects non-sole multimodal parameters", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content, extra: Schema.String },
+        input: { content: Content, extra: Schema.String },
         success: Schema.Void,
       })
       const exit = yield* Effect.exit(compileMethodSpec("bad", m))

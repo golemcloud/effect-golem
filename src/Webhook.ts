@@ -41,11 +41,11 @@
  *
  * defineAgent({
  *   name: "PaymentWatcher",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   http: Http.mount("/watchers/{name}", { webhookSuffix: "/payments" }),
  *   methods: {
  *     waitForPayment: method({
- *       params: {},
+ *       input: {},
  *       success: PaymentEvent,
  *       http: [Http.post("/wait")],
  *     }),

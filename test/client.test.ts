@@ -10,10 +10,10 @@ import { __resetIdempotency } from "./mocks/golem-api-host.js"
 const Counter = defineAgent({
   name: "Counter",
   mode: "durable",
-  constructorParams: { initial: Schema.Number },
+  id: { initial: Schema.Number },
   methods: {
-    getValue: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Void }),
+    getValue: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -25,9 +25,9 @@ const Counter = defineAgent({
 const Worker = defineAgent({
   name: "Worker",
   mode: "ephemeral",
-  constructorParams: { jobId: Schema.String },
+  id: { jobId: Schema.String },
   methods: {
-    run: method({ params: { times: Schema.Number }, success: Schema.String }),
+    run: method({ input: { times: Schema.Number }, success: Schema.String }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -430,9 +430,9 @@ describe("AgentClient overrides (config)", () => {
   const Counter2 = defineAgent({
     name: "Counter2",
     config: CounterCfg,
-    constructorParams: { initial: Schema.Number },
+    id: { initial: Schema.Number },
     methods: {
-      noop: method({ params: {}, success: Schema.Void }),
+      noop: method({ input: {}, success: Schema.Void }),
     },
   }).implement(() =>
     Effect.succeed({
@@ -777,15 +777,15 @@ const NotFoundErr = Schema.Struct({
 const Lookup = defineAgent({
   name: "Lookup",
   mode: "durable",
-  constructorParams: { realm: Schema.String },
+  id: { realm: Schema.String },
   methods: {
     fetch: method({
-      params: { id: Schema.String },
+      input: { id: Schema.String },
       success: Schema.Number,
       error: NotFoundErr,
     }),
     cmd: method({
-      params: { fail: Schema.Boolean },
+      input: { fail: Schema.Boolean },
       success: Schema.Void,
       error: NotFoundErr,
     }),

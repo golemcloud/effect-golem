@@ -161,7 +161,7 @@ describe("Http.mount({ webhookSuffix }) — validation", () => {
     expect(m.webhookSuffix).toEqual([{ _tag: "Literal", value: "inbox" }])
   })
 
-  it("accepts a {constructor-param} suffix variable", () => {
+  it("accepts a {id field} suffix variable", () => {
     const m = Http.mount("/agents/{name}", { webhookSuffix: "/{name}/events" })
     expect(m.webhookSuffix.length).toBe(2)
     expect(m.webhookSuffix[0]).toEqual({ _tag: "PathVar", name: "name" })
@@ -186,16 +186,16 @@ describe("Http.mount({ webhookSuffix }) — validation", () => {
     ).toThrow(Http.HttpRouteError)
   })
 
-  it.effect("rejects a webhookSuffix path variable that is not a constructor param", () =>
+  it.effect("rejects a webhookSuffix path variable that is not a id field", () =>
     Effect.gen(function* () {
       const m = Http.mount("/agents/{name}", { webhookSuffix: "/{unknown}/events" })
       const exit = yield* Effect.exit(
         Http.validateAgentHttp({
           agentName: "Test",
           mount: m,
-          constructorParamNames: ["name"],
-          nonStringBindableConstructorParams: new Set(),
-          stringBindableConstructorParams: new Set(["name"]),
+          idFieldNames: ["name"],
+          nonStringBindableIdFields: new Set(),
+          stringBindableIdFields: new Set(["name"]),
           methods: [],
         }),
       )
@@ -214,9 +214,9 @@ describe("Http.mount({ webhookSuffix }) — validation", () => {
         Http.validateAgentHttp({
           agentName: "Test",
           mount: m,
-          constructorParamNames: ["name"],
-          nonStringBindableConstructorParams: new Set(),
-          stringBindableConstructorParams: new Set(["name"]),
+          idFieldNames: ["name"],
+          nonStringBindableIdFields: new Set(),
+          stringBindableIdFields: new Set(["name"]),
           methods: [],
         }),
       )
@@ -229,11 +229,11 @@ describe("Http.mount({ webhookSuffix }) — validation", () => {
   )
 
   // The remaining two webhook-suffix bindability checks (multimodal /
-  // non-string-bindable constructor param) are kept in the implementation
+  // non-string-bindable id field) are kept in the implementation
   // as defence-in-depth, but cannot be exercised through the public
   // `validateAgentHttp` surface today: the mount-path validation runs the
-  // SAME checks on every constructor parameter, and the rule "every
-  // constructor parameter must appear as a `{var}` in the mount path"
+  // SAME checks on every id field, and the rule "every
+  // id field must appear as a `{var}` in the mount path"
   // forces any such param into the mount-path loop, where it is rejected
   // first. The compile-time `WebhookVarsValid` helper covers these cases
   // statically (see `test/http-types.test-d.ts` for the negative tests).

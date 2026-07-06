@@ -42,15 +42,15 @@ const oidcBob = {
 
 const AutoSnapshotCounter = defineAgent({
   name: "AutoSnapshotCounter",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.define({
+  id: { name: Schema.String },
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ count: Schema.Number, owner: Schema.String }),
     policy: Snapshot.policy.everyN(5),
   }),
   methods: {
-    value: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Number }),
-    owner: method({ params: {}, success: Schema.String }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
+    owner: method({ input: {}, success: Schema.String }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -77,11 +77,11 @@ const customStore = {
 
 const CustomSnapshotAgent = defineAgent({
   name: "CustomSnapshotAgent",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.custom({ policy: Snapshot.policy.periodic(Duration.seconds(30)) }),
+  id: { name: Schema.String },
+  snapshotting: Snapshot.custom({ policy: Snapshot.policy.periodic(Duration.seconds(30)) }),
   methods: {
-    value: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Number }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -118,13 +118,13 @@ const CustomSnapshotAgent = defineAgent({
 
 const ForgetfulSnapshotAgent = defineAgent({
   name: "ForgetfulSnapshotAgent",
-  constructorParams: {},
-  snapshot: Snapshot.define({
+  id: {},
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ count: Schema.Number }),
     policy: Snapshot.policy.default,
   }),
   methods: {
-    noop: method({ params: {}, success: Schema.Void }),
+    noop: method({ input: {}, success: Schema.Void }),
   },
 })
   // Intentionally never call snap.init: triggers SnapshotNotBoundError.
@@ -152,12 +152,12 @@ const configCustomStore: { saveCalls: number; loadCalls: number; lastBytes: Uint
 
 const ConfigCustomAgent = defineAgent({
   name: "ConfigCustomAgent",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   config: ConfigCustomCfg,
-  snapshot: Snapshot.custom({ policy: Snapshot.policy.default }),
+  snapshotting: Snapshot.custom({ policy: Snapshot.policy.default }),
   methods: {
-    value: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Number }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -252,8 +252,8 @@ describe("snapshotting", () => {
     Effect.gen(function* () {
       const NoSnapAgent = defineAgent({
         name: "NoSnapAgent",
-        constructorParams: {},
-        methods: { ping: method({ params: {}, success: Schema.Void }) },
+        id: {},
+        methods: { ping: method({ input: {}, success: Schema.Void }) },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       void NoSnapAgent
       const types = yield* Effect.promise(() => guest.discoverAgentTypes())
@@ -527,8 +527,8 @@ describe("snapshotting", () => {
   it("save fails for an active agent that did not declare a snapshot", async () => {
     const NoSnap = defineAgent({
       name: "NoSnap",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     void NoSnap
     await guest.initialize("NoSnap", { tag: "tuple", val: [] }, anonymous)
@@ -584,12 +584,12 @@ describe("snapshotting", () => {
   it("auto: snap.init called twice fails the second time", async () => {
     const TwiceBound = defineAgent({
       name: "TwiceBound",
-      constructorParams: {},
-      snapshot: Snapshot.define({
+      id: {},
+      snapshotting: Snapshot.define({
         schema: Schema.Number,
         policy: Snapshot.policy.default,
       }),
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((_input, snap) =>
       Effect.gen(function* () {
         yield* snap.init(0)
