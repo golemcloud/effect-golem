@@ -224,21 +224,21 @@ export interface GetOptions<F extends ConfigFields = never> {
 }
 
 interface DurableClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   F extends ConfigFields = never,
 > {
   readonly get: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly getPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     phantomId: string,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly newPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<
     PhantomRemoteAgent<Methods>,
@@ -247,17 +247,17 @@ interface DurableClient<
 }
 
 interface EphemeralClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   F extends ConfigFields = never,
 > {
   readonly getPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     phantomId: string,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly newPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<
     PhantomRemoteAgent<Methods>,
@@ -275,11 +275,11 @@ interface EphemeralClient<
  * @category models
  */
 export type AgentClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode,
   F extends ConfigFields = never,
-> = "ephemeral" extends M ? EphemeralClient<C, Methods, F> : DurableClient<C, Methods, F>
+> = "ephemeral" extends M ? EphemeralClient<Id, Methods, F> : DurableClient<Id, Methods, F>
 
 interface CompiledClient {
   readonly constructorCodecs: ReadonlyArray<ParamCodec>
@@ -296,7 +296,7 @@ const makeCompiler = (
     return Effect.gen(function* () {
       const constructorCodecs = (yield* compileParamCodecs(
         `${def.name} constructor`,
-        def.constructorParams,
+        def.id,
       )) as ReadonlyArray<ParamCodec>
       const methodCodecs = new Map<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>()
       for (const [name, spec] of Object.entries(def.methods)) {
@@ -575,13 +575,13 @@ const parsePhantomId = (id: string): Effect.Effect<CoreTypes.Uuid, RemoteCallErr
  * @category constructors
  */
 export const clientFor = <
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode,
   F extends ConfigFields = never,
 >(
-  def: AgentMetadata<C, Methods, M, F>,
-): AgentClient<C, Methods, M, F> => {
+  def: AgentMetadata<Id, Methods, M, F>,
+): AgentClient<Id, Methods, M, F> => {
   const compile = makeCompiler(def as AgentMetadata<MethodParams, Record<string, AnyMethodSpec>>)
 
   /**
@@ -649,20 +649,20 @@ export const clientFor = <
   // `HostLive`. The cast at the return statement of `clientFor` is the
   // erasure boundary.
 
-  const get = (input: MethodInput<C>, opts?: GetOptions<F>) =>
+  const get = (input: MethodInput<Id>, opts?: GetOptions<F>) =>
     Effect.map(
       construct(input as Record<string, unknown>, undefined, opts),
       ({ rpc, compiled }) => buildRemoteAgent(rpc, compiled) as RemoteAgent<Methods>,
     )
 
-  const getPhantom = (input: MethodInput<C>, phantomId: string, opts?: GetOptions<F>) =>
+  const getPhantom = (input: MethodInput<Id>, phantomId: string, opts?: GetOptions<F>) =>
     Effect.gen(function* () {
       const uuid = yield* parsePhantomId(phantomId)
       const { rpc, compiled } = yield* construct(input as Record<string, unknown>, uuid, opts)
       return buildRemoteAgent(rpc, compiled) as RemoteAgent<Methods>
     })
 
-  const newPhantom = (input: MethodInput<C>, opts?: GetOptions<F>) =>
+  const newPhantom = (input: MethodInput<Id>, opts?: GetOptions<F>) =>
     Effect.gen(function* () {
       const dm = yield* DurabilityModeClient
       const uuid = yield* Effect.try({
@@ -678,7 +678,7 @@ export const clientFor = <
 
   const mode: AgentCommon.AgentMode = def.mode ?? "durable"
   if (mode === "ephemeral") {
-    return { getPhantom, newPhantom } as AgentClient<C, Methods, M, F>
+    return { getPhantom, newPhantom } as AgentClient<Id, Methods, M, F>
   }
-  return { get, getPhantom, newPhantom } as AgentClient<C, Methods, M, F>
+  return { get, getPhantom, newPhantom } as AgentClient<Id, Methods, M, F>
 }

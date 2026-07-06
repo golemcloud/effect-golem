@@ -42,7 +42,7 @@ const Person = Schema.Struct({
 const Greeter = defineAgent({
   name: "Greeter",
   description: "An agent that greets people",
-  constructorParams: {},
+  id: {},
   methods: {
     greet: method({
       params: { person: Person, greeting: Schema.String },
@@ -63,7 +63,7 @@ const Greeter = defineAgent({
  *  side-effect during initialization. */
 const Counter = defineAgent({
   name: "Counter",
-  constructorParams: { initial: Schema.Number },
+  id: { initial: Schema.Number },
   methods: {
     getValue: method({ params: {}, success: Schema.Number }),
     add: method({ params: { by: Schema.Number }, success: Schema.Void }),
@@ -99,7 +99,7 @@ const principalTag = (p: PrincipalValue): string => (p.tag === "oidc" ? `oidc:${
  */
 const PrincipalAgent = defineAgent({
   name: "PrincipalAgent",
-  constructorParams: {},
+  id: {},
   methods: {
     owner: method({ params: {}, success: Schema.String }),
     caller: method({ params: {}, success: Schema.String }),
@@ -150,7 +150,7 @@ class TestConfig extends defineConfig("ConfigAgent.Cfg", {
 const ConfigAgent = defineAgent({
   name: "ConfigAgent",
   config: TestConfig,
-  constructorParams: {},
+  id: {},
   methods: {
     initialGreeting: method({ params: {}, success: Schema.String }),
     currentGreeting: method({ params: {}, success: Schema.String }),
@@ -373,7 +373,7 @@ describe("agent-guest exports", () => {
     // diagnostic instead of as a WASM instantiation crash).
     defineAgent({
       name: "Greeter",
-      constructorParams: {},
+      id: {},
       methods: { ping: method({ params: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     let caught: unknown

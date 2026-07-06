@@ -27,7 +27,7 @@ import { toWitCodec } from "../src/WitCodec.js"
 import { schemaValueToWit, v, type SchemaValue } from "../src/internal/schema-model/index.js"
 import { DatabaseSync } from "node:sqlite"
 
-/** Wrap constructor-param schema-values into the record-input tree. */
+/** Wrap id field schema-values into the record-input tree. */
 const recordInput = (...fields: SchemaValue[]) => schemaValueToWit(v.record(fields))
 const EMPTY_INPUT = recordInput()
 
@@ -49,8 +49,8 @@ const oidcZoe = {
 
 const SqliteCounter = defineAgent({
   name: "SqliteCounterTest",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.define({
+  id: { name: Schema.String },
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ note: Schema.String }),
     databases: ["counters"] as const,
     policy: Snapshot.policy.everyN(5),
@@ -77,8 +77,8 @@ const SqliteCounter = defineAgent({
 
 const SqliteForgetfulAttach = defineAgent({
   name: "SqliteForgetfulAttach",
-  constructorParams: {},
-  snapshot: Snapshot.define({
+  id: {},
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({}),
     databases: ["counters"] as const,
     policy: Snapshot.policy.default,

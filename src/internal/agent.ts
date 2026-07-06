@@ -181,13 +181,13 @@ type AnyMethodHasHttp<Methods extends Record<string, AnyMethodSpec>> = true exte
  * @category models
  */
 type AgentHttpRequirement<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   MV extends string,
   WV extends string,
 > =
   AnyMethodHasHttp<Methods> extends true
-    ? { readonly http: MountDefCovering<C, MV, WV> & WebhookVarsValid<C, WV> }
+    ? { readonly http: MountDefCovering<Id, MV, WV> & WebhookVarsValid<Id, WV> }
     : unknown
 
 interface ParamCodec {
@@ -256,9 +256,9 @@ export type CfgTagOf<F> = [F] extends [never]
  * @since 1.5.0
  * @category models
  */
-export type ImplArgs<C extends MethodParams, S, CfgTag = never> = [S] extends [never]
-  ? readonly [input: MethodInput<C>]
-  : readonly [input: MethodInput<C>, snapshot: SnapshotBinding<S, Principal | CfgTag>]
+export type ImplArgs<Id extends MethodParams, S, CfgTag = never> = [S] extends [never]
+  ? readonly [input: MethodInput<Id>]
+  : readonly [input: MethodInput<Id>, snapshot: SnapshotBinding<S, Principal | CfgTag>]
 
 /**
  * Constructor effect signature for an agent. Runs once per agent
@@ -272,12 +272,12 @@ export type ImplArgs<C extends MethodParams, S, CfgTag = never> = [S] extends [n
  * @category models
  */
 export type AgentImpl<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
 > = (
-  ...args: ImplArgs<C, S, CfgTagOf<F>>
+  ...args: ImplArgs<Id, S, CfgTagOf<F>>
 ) => Effect.Effect<
   Handlers<Methods, CfgTagOf<F>>,
   unknown,
@@ -296,12 +296,12 @@ export type AgentImpl<
  * @category models
  */
 export interface AgentMetadata<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode = AgentCommon.AgentMode,
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
-  MV extends string = BindableKeys<C>,
+  MV extends string = BindableKeys<Id>,
   WV extends string = never,
 > {
   readonly name: string
@@ -309,26 +309,26 @@ export interface AgentMetadata<
   /** Optional `prompt-hint`, surfaced as `agent-constructor.prompt-hint`. */
   readonly promptHint?: string
   readonly mode?: M // defaults to "durable"
-  readonly constructorParams: C
+  readonly id: Id
   readonly methods: Methods
   /**
    * Optional HTTP mount declaration. When present, this agent is exposed
    * via the Golem host's HTTP server under the declared path prefix.
    *
    * Type-level constraints:
-   * - Every `{var}` in the mount path must be a constructor parameter
+   * - Every `{var}` in the mount path must be an id field
    *   name AND must be statically eligible for path binding (i.e. not
    *   a {@link Multimodal} or {@link ElementSpec} carrier — see
    *   {@link BindableKeys}); enforced via {@link MountDefCovering}.
    * - Every `{var}` in the optional `webhookSuffix` must likewise be a
-   *   bindable constructor-parameter name; enforced via
+   *   bindable id field name; enforced via
    *   {@link WebhookVarsValid}.
    *
    * Full string-bindability (rejecting `Schema.Struct` etc.) and
    * full constructor-coverage are enforced at registration time by
    * the runtime validators in `Http.ts`.
    */
-  readonly http?: MountDefCovering<C, MV, WV> & WebhookVarsValid<C, WV>
+  readonly http?: MountDefCovering<Id, MV, WV> & WebhookVarsValid<Id, WV>
   /**
    * Optional Effect-Context-based config service. Built with
    * {@link defineConfig}. When present, the dispatcher fetches each
@@ -343,7 +343,7 @@ export interface AgentMetadata<
    * second {@link SnapshotBinding} argument, and the agent type's
    * `snapshotting` metadata reflects the configured policy.
    */
-  readonly snapshot?: S
+  readonly snapshotting?: S
 }
 
 /**
@@ -368,13 +368,13 @@ export interface AgentMetadata<
  * @category models
  */
 export type AgentSpec<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode = AgentCommon.AgentMode,
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
-> = AgentMetadata<C, Methods, M, F, S> & {
-  readonly client: AgentClient<C, Methods, M, F>
+> = AgentMetadata<Id, Methods, M, F, S> & {
+  readonly client: AgentClient<Id, Methods, M, F>
   /**
    * Attach an implementation to the spec and eagerly register the agent
    * with the runtime. Returns an {@link ImplementedAgent} that exposes
@@ -386,7 +386,7 @@ export type AgentSpec<
    * (stashed in {@link pendingRegistrationErrors}, re-emitted from
    * {@link dispatchDiscoverAgentTypes}).
    */
-  readonly implement: (impl: AgentImpl<C, Methods, F, S>) => ImplementedAgent<C, Methods, M, F, S>
+  readonly implement: (impl: AgentImpl<Id, Methods, F, S>) => ImplementedAgent<Id, Methods, M, F, S>
 }
 
 /**
@@ -403,14 +403,14 @@ export type AgentSpec<
  * @category models
  */
 export type ImplementedAgent<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode,
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
-> = AgentMetadata<C, Methods, M, F, S> & {
-  readonly client: AgentClient<C, Methods, M, F>
-  readonly spec: AgentSpec<C, Methods, M, F, S>
+> = AgentMetadata<Id, Methods, M, F, S> & {
+  readonly client: AgentClient<Id, Methods, M, F>
+  readonly spec: AgentSpec<Id, Methods, M, F, S>
 }
 
 /**
@@ -429,7 +429,7 @@ export type ImplementedAgent<
  * **Canonicalization**
  *
  * `defineAgent` shallow-clones and freezes the supplied metadata
- * (top-level object, `constructorParams`, `methods`) so that the
+ * (top-level object, `id`, `methods`) so that the
  * spec's `client` (built immediately) and any later
  * `spec.implement(...)` registration always agree on the same view of
  * the metadata. Mutating the original user-supplied literal after
@@ -447,12 +447,12 @@ export type ImplementedAgent<
  * When `http` IS supplied, two additional type-level constraints
  * apply to it:
  *
- * - Every constructor parameter in `constructorParams` must appear as
+ * - Every id field in `id` must appear as
  *   a `{var}` segment in the mount path; missing vars surface as an
  *   `Invalid<"mount path missing var '…'">` carrier on the assigned
  *   {@link MountDefCovering} type.
  * - Every `{var}` in the optional `webhookSuffix` must match a
- *   constructor-parameter name AND must be statically eligible for
+ *   id field name AND must be statically eligible for
  *   binding (i.e. NOT a {@link Multimodal} or {@link ElementSpec}
  *   carrier — see {@link BindableKeys}); violations surface as a
  *   {@link WebhookVarsValid} carrier with a readable reason string.
@@ -496,37 +496,37 @@ export type ImplementedAgent<
  * @category constructors
  */
 export const defineAgent = <
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode = "durable",
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
-  MV extends string = BindableKeys<C>,
+  MV extends string = BindableKeys<Id>,
   WV extends string = never,
 >(
-  metadata: AgentMetadata<C, Methods, M, F, S, MV, WV> & AgentHttpRequirement<C, Methods, MV, WV>,
-): AgentSpec<C, Methods, M, F, S> => {
+  metadata: AgentMetadata<Id, Methods, M, F, S, MV, WV> & AgentHttpRequirement<Id, Methods, MV, WV>,
+): AgentSpec<Id, Methods, M, F, S> => {
   // Canonicalize: shallow-clone the top-level object and the two
   // nested containers, then freeze them so the spec is immutable from
   // the caller's perspective. This closes the mutation window between
   // spec construction (which `clientFor` reads from) and
   // `.implement(...)` (which `registerAgent` re-reads from later).
-  const canonicalConstructorParams = Object.freeze({ ...metadata.constructorParams }) as C
+  const canonicalId = Object.freeze({ ...metadata.id }) as Id
   const canonicalMethods = Object.freeze({ ...metadata.methods }) as Methods
   const canonical = Object.freeze({
     ...metadata,
-    constructorParams: canonicalConstructorParams,
+    id: canonicalId,
     methods: canonicalMethods,
-  }) as AgentMetadata<C, Methods, M, F, S, MV, WV>
+  }) as AgentMetadata<Id, Methods, M, F, S, MV, WV>
 
   // Build the typed RPC client once from the canonical metadata. The
   // same reference is shared between the spec and any
   // `ImplementedAgent` produced by `spec.implement(...)` below.
-  const sharedClient = clientFor(canonical as unknown as AgentMetadata<C, Methods, M, F>)
+  const sharedClient = clientFor(canonical as unknown as AgentMetadata<Id, Methods, M, F>)
 
   // `implement` is created as a closure rather than a prototype method
-  // so the generics inferred by `defineAgent` (C, Methods, M, F, S)
-  // flow into the constructor parameter shape without requiring the
+  // so the generics inferred by `defineAgent` (Id, Methods, M, F, S)
+  // flow into the id field shape without requiring the
   // user to re-state them.
   //
   // `.implement(...)` is single-shot per spec — the `consumed` flag is
@@ -535,7 +535,7 @@ export const defineAgent = <
   // {@link DuplicateAgentNameError} so a flaky retry loop cannot leak
   // additional registrations or accumulate stacked errors.
   let consumed = false
-  const implement = (impl: AgentImpl<C, Methods, F, S>): ImplementedAgent<C, Methods, M, F, S> => {
+  const implement = (impl: AgentImpl<Id, Methods, F, S>): ImplementedAgent<Id, Methods, M, F, S> => {
     if (consumed) {
       pendingRegistrationErrors.push({
         agentName: canonical.name,
@@ -546,8 +546,8 @@ export const defineAgent = <
       // The caller-side `AgentHttpRequirement` intersection is already
       // satisfied at the `defineAgent` call site; re-introduce it here
       // for `registerAgent`'s strictly-typed input.
-      const metadataForRegistration = canonical as AgentMetadata<C, Methods, M, F, S, MV, WV> &
-        AgentHttpRequirement<C, Methods, MV, WV>
+      const metadataForRegistration = canonical as AgentMetadata<Id, Methods, M, F, S, MV, WV> &
+        AgentHttpRequirement<Id, Methods, MV, WV>
       const exit = Effect.runSyncExit(registerAgent(metadataForRegistration, impl))
       if (Exit.isFailure(exit)) {
         pendingRegistrationErrors.push({ agentName: canonical.name, cause: exit.cause })
@@ -559,7 +559,7 @@ export const defineAgent = <
       ...canonical,
       client: sharedClient,
       spec,
-    }) as unknown as ImplementedAgent<C, Methods, M, F, S>
+    }) as unknown as ImplementedAgent<Id, Methods, M, F, S>
   }
 
   // Erase the `MV` / `WV` phantoms as above; the public
@@ -569,7 +569,7 @@ export const defineAgent = <
     ...canonical,
     client: sharedClient,
     implement,
-  }) as unknown as AgentSpec<C, Methods, M, F, S>
+  }) as unknown as AgentSpec<Id, Methods, M, F, S>
   return spec
 }
 
@@ -597,7 +597,7 @@ interface CompiledAgent {
   readonly agentType: AgentCommon.AgentType
   /** Compiled config bundle when `metadata.config` is set; `null` otherwise. */
   readonly compiledConfig: CompiledConfig | null
-  /** Compiled snapshot bundle when `metadata.snapshot` is set; `null` otherwise. */
+  /** Compiled snapshot bundle when `metadata.snapshotting` is set; `null` otherwise. */
   readonly compiledSnapshot: CompiledSnapshot | null
 }
 
@@ -662,16 +662,16 @@ export class DuplicateAgentNameError {
  * @category constructors
  */
 export const registerAgent = <
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode = AgentCommon.AgentMode,
   F extends ConfigFields = never,
   S extends SnapshotDef = never,
-  MV extends string = BindableKeys<C>,
+  MV extends string = BindableKeys<Id>,
   WV extends string = never,
 >(
-  metadata: AgentMetadata<C, Methods, M, F, S, MV, WV> & AgentHttpRequirement<C, Methods, MV, WV>,
-  impl: AgentImpl<C, Methods, F, S>,
+  metadata: AgentMetadata<Id, Methods, M, F, S, MV, WV> & AgentHttpRequirement<Id, Methods, MV, WV>,
+  impl: AgentImpl<Id, Methods, F, S>,
 ): Effect.Effect<
   void,
   UnsupportedSchemaError | HttpRouteError | InvalidSnapshotError | DuplicateAgentNameError
@@ -683,7 +683,7 @@ export const registerAgent = <
 
     const constructorCodecs = (yield* compileParamCodecs(
       `${metadata.name} constructor`,
-      metadata.constructorParams,
+      metadata.id,
     )) as Array<ParamCodec>
 
     const methodCodecs = new Map<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>()
@@ -708,11 +708,11 @@ export const registerAgent = <
     const compiledHttp = yield* validateAgentHttp({
       agentName: metadata.name,
       mount: metadata.http,
-      constructorParamNames: Object.keys(metadata.constructorParams),
-      nonStringBindableConstructorParams: collectNonStringBindableParams(
-        metadata.constructorParams,
+      idFieldNames: Object.keys(metadata.id),
+      nonStringBindableIdFields: collectNonStringBindableParams(
+        metadata.id,
       ),
-      stringBindableConstructorParams: collectStringBindableParams(metadata.constructorParams),
+      stringBindableIdFields: collectStringBindableParams(metadata.id),
       methods: methodHttpInputs,
     })
 
@@ -726,8 +726,8 @@ export const registerAgent = <
 
     let compiledSnapshot: CompiledSnapshot | null = null
     let snapshotting: AgentCommon.Snapshotting = { tag: "disabled" }
-    if (metadata.snapshot !== undefined) {
-      const cs = yield* compileSnapshot(metadata.name, metadata.snapshot)
+    if (metadata.snapshotting !== undefined) {
+      const cs = yield* compileSnapshot(metadata.name, metadata.snapshotting)
       compiledSnapshot = cs
       snapshotting = { tag: "enabled", val: cs.witConfig }
     }

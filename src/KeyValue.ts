@@ -19,7 +19,7 @@
  *
  * defineAgent({
  *   name: "Users",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   methods: {
  *     put: method({ params: { id: Schema.String, name: Schema.String }, success: Schema.Void }),
  *     get: method({ params: { id: Schema.String }, success: Schema.Option(User) }),

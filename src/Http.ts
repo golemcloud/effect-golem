@@ -48,7 +48,7 @@ export type {
  *
  * defineAgent({
  *   name: "Counter",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   http: Http.mount("/counters/{agent-type}/{name}", { cors: ["*"] }),
  *   methods: {
  *     value: method({ params: {}, success: Schema.Number, http: [Http.get("/value")] }),
@@ -377,18 +377,18 @@ export type EndpointKind = "bodyful" | "bodyless"
  * `agent-type.http-mount` (`HttpMountDetails`) at registration time.
  *
  * The phantom `MountVars` parameter is **not** present at runtime —
- * `agent.ts` enforces `MountVars extends keyof ConstructorParams` to
+ * `agent.ts` enforces `MountVars extends keyof Id` to
  * give a compile-time signal when a `{var}` in the mount path doesn't
- * match a constructor param.
+ * match an id field.
  *
  * The second phantom `WebhookVars` carries the union of `{var}` names
  * appearing in the optional `webhookSuffix`. It is intentionally kept
  * SEPARATE from `MountVars`: webhook-suffix vars are validated against
- * constructor parameters rather than being part of the routable mount
+ * id field rather than being part of the routable mount
  * URL, and folding them into `MountVars` would conflate "this var is
  * resolved during HTTP routing" with "this var is rendered into the
  * webhook URL at deploy time". `agent.ts` consumes `WebhookVars` via
- * `WebhookVarsValid<C, WebhookVars>` to enforce the constructor-param
+ * `WebhookVarsValid<C, WebhookVars>` to enforce the id field
  * + bindability constraints at compile time.
  *
  * Instances are {@link Pipeable.Pipeable}: the pipeable-builder
@@ -728,13 +728,13 @@ export interface MountOptions<W extends string = string> {
 /**
  * Declare an HTTP mount for an agent. The path may include `{var}` and
  * `{agent-type}` / `{agent-version}` segments; every `{var}` must
- * correspond to a constructor parameter on the agent.
+ * correspond to an id field on the agent.
  *
  * The optional `opts.webhookSuffix` is parsed with the same rules as
  * the mount path (no query, no catch-all). Its `{var}` names are
  * extracted into the `WebhookVars` phantom on the returned
  * {@link MountDef} so `agent.ts` can validate them against the agent's
- * constructor parameters at compile time via `WebhookVarsValid`.
+ * id field at compile time via `WebhookVarsValid`.
  *
  * **Compile-time guarantees**
  *
@@ -751,7 +751,7 @@ export interface MountOptions<W extends string = string> {
  * - Mount paths may NOT contain a catch-all `{*rest}` segment.
  * - The optional `webhookSuffix` is parsed with the same rules.
  *
- * Coverage of constructor parameters by `{var}` segments and
+ * Coverage of id fields by `{var}` segments and
  * webhook-suffix `{var}` validity are enforced separately, at the
  * `defineAgent` call site, via the `MountDefCovering<C, V>` and
  * `WebhookVarsValid<C, W>` constraints applied to the agent's `http`
@@ -760,7 +760,7 @@ export interface MountOptions<W extends string = string> {
  * **Runtime fallbacks (defence-in-depth)**
  *
  * The brace-balance check, the var-name regex, AND full
- * string-bindability of the bound constructor parameter (i.e.
+ * string-bindability of the bound id field (i.e.
  * rejecting `Schema.Struct` / `Schema.Class` schemas on a path var)
  * remain runtime-only because they need either parser-level loops or
  * `Schema.AST` introspection that cannot be expressed at the type
@@ -1281,7 +1281,7 @@ export const withPhantomAgent =
  * matching the runtime behaviour where a later call overwrites the
  * earlier `webhookSuffix` array. At the `defineAgent` call site,
  * `WebhookVarsValid<C, WebhookVars>` then enforces that every
- * suffix `{var}` matches a constructor-parameter name AND is
+ * suffix `{var}` matches an id field name AND is
  * statically eligible for binding (i.e. NOT a {@link Multimodal} or
  * {@link ElementSpec} carrier — see {@link BindableKeys}).
  *
@@ -1410,18 +1410,18 @@ export interface MethodHttpInput {
 export interface AgentHttpInput {
   readonly agentName: string
   readonly mount: MountDef<string, string> | undefined
-  readonly constructorParamNames: ReadonlyArray<string>
+  readonly idFieldNames: ReadonlyArray<string>
   /**
-   * Names of constructor parameters that are NOT eligible to be bound
+   * Names of id fields that are NOT eligible to be bound
    * from a path variable (e.g. multimodal / unstructured-binary).
    */
-  readonly nonStringBindableConstructorParams: ReadonlySet<string>
+  readonly nonStringBindableIdFields: ReadonlySet<string>
   /**
-   * Names of constructor parameters whose schema is a plain
+   * Names of id fields whose schema is a plain
    * string-bindable Schema (string / number / bigint / boolean /
    * literal / branded variants thereof).
    */
-  readonly stringBindableConstructorParams: ReadonlySet<string>
+  readonly stringBindableIdFields: ReadonlySet<string>
   readonly methods: ReadonlyArray<MethodHttpInput>
 }
 
@@ -1651,42 +1651,42 @@ const validateMount = (
         return yield* Effect.fail(new HttpRouteError(`${ctx}: duplicate path variable '${s.name}'`))
       }
       mountVars.add(s.name)
-      if (!input.constructorParamNames.includes(s.name)) {
+      if (!input.idFieldNames.includes(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: path variable '${s.name}' does not match any constructor parameter (constructorParams: ${input.constructorParamNames.join(", ") || "<none>"})`,
+            `${ctx}: path variable '${s.name}' does not match any id field (available: ${input.idFieldNames.join(", ") || "<none>"})`,
           ),
         )
       }
-      if (input.nonStringBindableConstructorParams.has(s.name)) {
+      if (input.nonStringBindableIdFields.has(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: constructor parameter '${s.name}' is multimodal/unstructured and cannot be bound from a path variable`,
+            `${ctx}: id field '${s.name}' is multimodal/unstructured and cannot be bound from a path variable`,
           ),
         )
       }
-      if (!input.stringBindableConstructorParams.has(s.name)) {
+      if (!input.stringBindableIdFields.has(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: constructor parameter '${s.name}' has a schema that is not bindable from a path variable (only String, Number, BigInt, Boolean, Literal, or branded variants thereof are supported)`,
+            `${ctx}: id field '${s.name}' has a schema that is not bindable from a path variable (only String, Number, BigInt, Boolean, Literal, or branded variants thereof are supported)`,
           ),
         )
       }
     }
-    // Every constructor param must be covered by a mount path variable.
-    for (const cp of input.constructorParamNames) {
+    // Every id field must be covered by a mount path variable.
+    for (const cp of input.idFieldNames) {
       if (!mountVars.has(cp)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: constructor parameter '${cp}' is not covered by a mount path variable — add '{${cp}}' to the mount path`,
+            `${ctx}: id field '${cp}' is not covered by a mount path variable — add '{${cp}}' to the mount path`,
           ),
         )
       }
     }
     // Webhook suffix variables, if any, must:
     //   (a) be unique within the suffix,
-    //   (b) match a constructor parameter,
-    //   (c) NOT refer to a multimodal / unstructured constructor param,
+    //   (b) match an id field,
+    //   (c) NOT refer to a multimodal / unstructured id field,
     //   (d) be on a string-bindable schema (string / number / bigint /
     //       boolean / literal / branded variants thereof).
     // Mirrors the mount-path checks above so the rules are consistent
@@ -1700,24 +1700,24 @@ const validateMount = (
         )
       }
       webhookVars.add(s.name)
-      if (!input.constructorParamNames.includes(s.name)) {
+      if (!input.idFieldNames.includes(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: webhook-suffix path variable '${s.name}' does not match any constructor parameter`,
+            `${ctx}: webhook-suffix path variable '${s.name}' does not match any id field`,
           ),
         )
       }
-      if (input.nonStringBindableConstructorParams.has(s.name)) {
+      if (input.nonStringBindableIdFields.has(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: webhook-suffix constructor parameter '${s.name}' is multimodal/unstructured and cannot be bound from a path variable`,
+            `${ctx}: webhook-suffix id field '${s.name}' is multimodal/unstructured and cannot be bound from a path variable`,
           ),
         )
       }
-      if (!input.stringBindableConstructorParams.has(s.name)) {
+      if (!input.stringBindableIdFields.has(s.name)) {
         return yield* Effect.fail(
           new HttpRouteError(
-            `${ctx}: webhook-suffix constructor parameter '${s.name}' has a schema that is not bindable from a path variable (only String, Number, BigInt, Boolean, Literal, or branded variants thereof are supported)`,
+            `${ctx}: webhook-suffix id field '${s.name}' has a schema that is not bindable from a path variable (only String, Number, BigInt, Boolean, Literal, or branded variants thereof are supported)`,
           ),
         )
       }

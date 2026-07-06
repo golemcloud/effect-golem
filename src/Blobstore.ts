@@ -10,7 +10,7 @@
  *
  * defineAgent({
  *   name: "Photos",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   methods: {
  *     upload: method({ params: { key: Schema.String, body: Schema.Uint8Array }, success: Schema.Void }),
  *     download: method({ params: { key: Schema.String }, success: Schema.Uint8Array }),

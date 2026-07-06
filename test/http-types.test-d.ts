@@ -156,13 +156,13 @@ void Http.endpoint("GET", "items")
 void Http.custom("PURGE", "items")
 
 // ---------------------------------------------------------------------------
-// every constructor parameter must be covered by the mount path
+// every id field must be covered by the mount path
 // ---------------------------------------------------------------------------
 
 // Positive case — all params covered by the mount path.
 defineAgent({
   name: "M4_AllCovered",
-  constructorParams: { name: Schema.String, id: Schema.String },
+  id: { name: Schema.String, id: Schema.String },
   http: Http.mount("/agents/{name}/{id}"),
   methods: {
     op: method({ params: {}, success: Schema.String }),
@@ -170,20 +170,20 @@ defineAgent({
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
 // Positive case — agent without `http:` is OK regardless of the
-// constructor params.
+// id field.
 defineAgent({
   name: "M4_NoHttp",
-  constructorParams: { name: Schema.String, id: Schema.String },
+  id: { name: Schema.String, id: Schema.String },
   methods: {
     op: method({ params: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
-// Positive case — agent with empty constructor params and a literal
+// Positive case — agent with empty id field and a literal
 // mount path. `keyof C & string` is `never`, so coverage is trivial.
 defineAgent({
   name: "M4_NoParams",
-  constructorParams: {},
+  id: {},
   http: Http.mount("/agents"),
   methods: {
     op: method({ params: {}, success: Schema.String }),
@@ -193,18 +193,18 @@ defineAgent({
 // Negative case — mount path is missing `{id}`.
 defineAgent({
   name: "M4_MissingId",
-  constructorParams: { name: Schema.String, id: Schema.String },
-  // @ts-expect-error mount path is missing the `{id}` constructor parameter
+  id: { name: Schema.String, id: Schema.String },
+  // @ts-expect-error mount path is missing the `{id}` id field
   http: Http.mount("/agents/{name}"),
   methods: {
     op: method({ params: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
-// Negative case — mount path covers neither constructor parameter.
+// Negative case — mount path covers neither id field.
 defineAgent({
   name: "M4_None",
-  constructorParams: { name: Schema.String, id: Schema.String },
+  id: { name: Schema.String, id: Schema.String },
   // @ts-expect-error mount path is missing `{name}` and `{id}`
   http: Http.mount("/agents"),
   methods: {
@@ -369,20 +369,20 @@ void method({
 void (() =>
   defineAgent({
     name: "_Phase5Pos",
-    constructorParams: { tenant: Schema.String },
+    id: { tenant: Schema.String },
     http: Http.mount("/api/{tenant}"),
     methods: {},
   }).implement(() => Effect.succeed({})))
 
 // ---------------------------------------------------------------------------
-// webhook-suffix vars validated against constructor params
+// webhook-suffix vars validated against id field
 // ---------------------------------------------------------------------------
 
 // Positive — webhook var matches a bindable constructor key (literal options form).
 void (() =>
   defineAgent({
     name: "_Phase6_Pos_Lit",
-    constructorParams: { tenant: Schema.String },
+    id: { tenant: Schema.String },
     http: Http.mount("/api/{tenant}", { webhookSuffix: "/inbox/{tenant}" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -391,7 +391,7 @@ void (() =>
 void (() =>
   defineAgent({
     name: "_Phase6_Pos_Pipe",
-    constructorParams: { tenant: Schema.String },
+    id: { tenant: Schema.String },
     http: Http.mount("/api/{tenant}").pipe(Http.withWebhookSuffix("/inbox/{tenant}")),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -400,7 +400,7 @@ void (() =>
 void (() =>
   defineAgent({
     name: "_Phase6_Pos_System",
-    constructorParams: { tenant: Schema.String },
+    id: { tenant: Schema.String },
     http: Http.mount("/api/{tenant}", { webhookSuffix: "/inbox/{agent-type}" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -409,7 +409,7 @@ void (() =>
 void (() =>
   defineAgent({
     name: "_Phase6_Pos_Empty",
-    constructorParams: { tenant: Schema.String },
+    id: { tenant: Schema.String },
     http: Http.mount("/api/{tenant}", { webhookSuffix: "/inbox" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -418,8 +418,8 @@ void (() =>
 void (() =>
   defineAgent({
     name: "_Phase6_Neg_Unknown_Lit",
-    constructorParams: { tenant: Schema.String },
-    // @ts-expect-error — webhook-suffix var '{nope}' is not a constructor parameter
+    id: { tenant: Schema.String },
+    // @ts-expect-error — webhook-suffix var '{nope}' is not a id field
     http: Http.mount("/api/{tenant}", { webhookSuffix: "/inbox/{nope}" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -428,38 +428,38 @@ void (() =>
 void (() =>
   defineAgent({
     name: "_Phase6_Neg_Unknown_Pipe",
-    constructorParams: { tenant: Schema.String },
-    // @ts-expect-error — webhook-suffix var '{nope}' is not a constructor parameter
+    id: { tenant: Schema.String },
+    // @ts-expect-error — webhook-suffix var '{nope}' is not a id field
     http: Http.mount("/api/{tenant}").pipe(Http.withWebhookSuffix("/inbox/{nope}")),
     methods: {},
   }).implement(() => Effect.succeed({})))
 
-// Negative — webhook var refers to a Multimodal constructor param.
-// All constructor params are covered by the mount path, so the rejection
+// Negative — webhook var refers to a Multimodal id field.
+// All id field are covered by the mount path, so the rejection
 // is unambiguously from WebhookVarsValid (not MountDefCovering).
 void (() =>
   defineAgent({
     name: "_Phase6_Neg_Multimodal",
-    constructorParams: {
+    id: {
       tenant: Schema.String,
       payload: multimodal({ chunk: UnstructuredText() }),
     },
-    // @ts-expect-error — webhook-suffix var '{payload}' refers to a multimodal constructor param
+    // @ts-expect-error — webhook-suffix var '{payload}' refers to a multimodal id field
     http: Http.mount("/api/{tenant}/{payload}", { webhookSuffix: "/inbox/{payload}" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
 
 // Negative — webhook var refers to an ElementSpec (UnstructuredText)
-// constructor param. All constructor params are covered by the mount
+// id field. All id field are covered by the mount
 // path, so the rejection is unambiguously from WebhookVarsValid.
 void (() =>
   defineAgent({
     name: "_Phase6_Neg_Element",
-    constructorParams: {
+    id: {
       tenant: Schema.String,
       text: UnstructuredText(),
     },
-    // @ts-expect-error — webhook-suffix var '{text}' refers to an ElementSpec constructor param
+    // @ts-expect-error — webhook-suffix var '{text}' refers to an ElementSpec id field
     http: Http.mount("/api/{tenant}/{text}", { webhookSuffix: "/inbox/{text}" }),
     methods: {},
   }).implement(() => Effect.succeed({})))
@@ -925,7 +925,7 @@ void method({
 // Positive — agent with NO HTTP methods may omit `http` entirely.
 void defineAgent({
   name: "Phase10NoHttpMount",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   methods: {
     value: method({ params: {}, success: Schema.Number }),
   },
@@ -935,7 +935,7 @@ void defineAgent({
 // `withHttp` is NOT used. Confirms `HasHttp = false` is the default.
 void defineAgent({
   name: "Phase10NoHttpMethodsAtAll",
-  constructorParams: {},
+  id: {},
   methods: {
     ping: method({ params: {}, success: Schema.Void }),
   },
@@ -944,7 +944,7 @@ void defineAgent({
 // Positive — agent with HTTP methods AND a matching mount compiles.
 void defineAgent({
   name: "Phase10WithHttpAndMount",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   http: Http.mount("/agents/{name}"),
   methods: {
     value: method({
@@ -961,7 +961,7 @@ void defineAgent({
 // @ts-expect-error — methods declare http, agent must declare http
 void defineAgent({
   name: "Phase10HttpMethodsMissingMount",
-  constructorParams: {},
+  id: {},
   methods: {
     value: method({
       params: {},
@@ -977,7 +977,7 @@ void defineAgent({
 // @ts-expect-error — methods declare http via withHttp, agent must declare http
 void defineAgent({
   name: "Phase10WithHttpPipeMissingMount",
-  constructorParams: {},
+  id: {},
   methods: {
     value: method({ params: {}, success: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),
   },
@@ -987,7 +987,7 @@ void defineAgent({
 // require a mount. Matches the runtime check (`endpoints.length > 0`).
 void defineAgent({
   name: "Phase10EmptyHttpArray",
-  constructorParams: {},
+  id: {},
   methods: {
     value: method({ params: {}, success: Schema.Number, http: [] }),
   },
@@ -996,7 +996,7 @@ void defineAgent({
 // Positive — `withHttp` + matching mount also compiles.
 void defineAgent({
   name: "Phase10WithHttpPipeAndMount",
-  constructorParams: {},
+  id: {},
   http: Http.mount("/agents"),
   methods: {
     value: method({ params: {}, success: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),

@@ -21,7 +21,7 @@ import { isElementSpec, type ElementSpec } from "../Unstructured.js"
 import { toWitCodec, type UnsupportedSchemaError, type WitCodec } from "../WitCodec.js"
 
 /**
- * A method/constructor parameter is either an ordinary `Schema.Top` (which
+ * A method or id-field parameter is either an ordinary `Schema.Top` (which
  * compiles to a `component-model` element), an `ElementSpec<T>`
  * (unstructured-text/binary), or a `Multimodal<S>` (the param maps to
  * `DataSchema.multimodal`; only valid when it is the sole parameter).
@@ -535,7 +535,7 @@ export const invoke = <
 ): Effect.Effect<Success["Type"], Error["Type"], R> => m.body(input)
 
 /**
- * A single method/constructor parameter compiled to its WIT codec, in
+ * A single method or id-field parameter compiled to its WIT codec, in
  * declaration order. In the new schema model a parameter is just a
  * `WitCodec` (no element wrapper); its `graph.root` is encoded into the
  * agent's shared `schema-graph` when the `AgentType` is assembled.

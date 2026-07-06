@@ -16,7 +16,7 @@ import {
 const Counter = defineAgent({
   name: "Counter",
   mode: "durable",
-  constructorParams: { initial: Schema.Number },
+  id: { initial: Schema.Number },
   methods: {
     getValue: method({ params: {}, success: Schema.Number }),
     add: method({ params: { by: Schema.Number }, success: Schema.Void }),
@@ -31,7 +31,7 @@ const Counter = defineAgent({
 const Worker = defineAgent({
   name: "Worker",
   mode: "ephemeral",
-  constructorParams: { jobId: Schema.String },
+  id: { jobId: Schema.String },
   methods: {
     run: method({ params: { times: Schema.Number }, success: Schema.String }),
   },
@@ -455,7 +455,7 @@ describe("AgentClient overrides (config)", () => {
   const Counter2 = defineAgent({
     name: "Counter2",
     config: CounterCfg,
-    constructorParams: { initial: Schema.Number },
+    id: { initial: Schema.Number },
     methods: {
       noop: method({ params: {}, success: Schema.Void }),
     },
@@ -803,7 +803,7 @@ const NotFoundErr = Schema.Struct({
 const Lookup = defineAgent({
   name: "Lookup",
   mode: "durable",
-  constructorParams: { realm: Schema.String },
+  id: { realm: Schema.String },
   methods: {
     fetch: method({
       params: { id: Schema.String },

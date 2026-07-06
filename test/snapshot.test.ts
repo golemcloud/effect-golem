@@ -38,7 +38,7 @@ import {
 
 const anonymous = { tag: "anonymous" } as const
 
-/** Wrap a single constructor-param schema-value into the record-input tree. */
+/** Wrap a single id field schema-value into the record-input tree. */
 const recordInput = (...fields: SchemaValue[]) => schemaValueToWit(v.record(fields))
 const EMPTY_INPUT = recordInput()
 
@@ -61,8 +61,8 @@ const oidcBob = {
 
 const AutoSnapshotCounter = defineAgent({
   name: "AutoSnapshotCounter",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.define({
+  id: { name: Schema.String },
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ count: Schema.Number, owner: Schema.String }),
     policy: Snapshot.policy.everyN(5),
   }),
@@ -96,8 +96,8 @@ const customStore = {
 
 const CustomSnapshotAgent = defineAgent({
   name: "CustomSnapshotAgent",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.custom({ policy: Snapshot.policy.periodic(Duration.seconds(30)) }),
+  id: { name: Schema.String },
+  snapshotting: Snapshot.custom({ policy: Snapshot.policy.periodic(Duration.seconds(30)) }),
   methods: {
     value: method({ params: {}, success: Schema.Number }),
     add: method({ params: { by: Schema.Number }, success: Schema.Number }),
@@ -137,8 +137,8 @@ const CustomSnapshotAgent = defineAgent({
 
 const ForgetfulSnapshotAgent = defineAgent({
   name: "ForgetfulSnapshotAgent",
-  constructorParams: {},
-  snapshot: Snapshot.define({
+  id: {},
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ count: Schema.Number }),
     policy: Snapshot.policy.default,
   }),
@@ -171,9 +171,9 @@ const configCustomStore: { saveCalls: number; loadCalls: number; lastBytes: Uint
 
 const ConfigCustomAgent = defineAgent({
   name: "ConfigCustomAgent",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   config: ConfigCustomCfg,
-  snapshot: Snapshot.custom({ policy: Snapshot.policy.default }),
+  snapshotting: Snapshot.custom({ policy: Snapshot.policy.default }),
   methods: {
     value: method({ params: {}, success: Schema.Number }),
     add: method({ params: { by: Schema.Number }, success: Schema.Number }),
@@ -271,7 +271,7 @@ describe("snapshotting", () => {
     Effect.gen(function* () {
       const NoSnapAgent = defineAgent({
         name: "NoSnapAgent",
-        constructorParams: {},
+        id: {},
         methods: { ping: method({ params: {}, success: Schema.Void }) },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       void NoSnapAgent
@@ -474,7 +474,7 @@ describe("snapshotting", () => {
   it("save fails for an active agent that did not declare a snapshot", async () => {
     const NoSnap = defineAgent({
       name: "NoSnap",
-      constructorParams: {},
+      id: {},
       methods: { ping: method({ params: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     void NoSnap
@@ -527,8 +527,8 @@ describe("snapshotting", () => {
   it("auto: snap.init called twice fails the second time", async () => {
     const TwiceBound = defineAgent({
       name: "TwiceBound",
-      constructorParams: {},
-      snapshot: Snapshot.define({
+      id: {},
+      snapshotting: Snapshot.define({
         schema: Schema.Number,
         policy: Snapshot.policy.default,
       }),
