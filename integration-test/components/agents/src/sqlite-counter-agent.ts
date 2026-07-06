@@ -25,31 +25,31 @@ export const SqliteCounter = defineAgent({
   description:
     "A named integer counter backed by node:sqlite + auto snapshots, using the effect/unstable/sql adapter (rev4)",
   mode: "durable",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   http: Http.mount("/sqlite-counters/{name}", { cors: ["*"] }),
-  snapshot: Snapshot.define({
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({}),
     databases: ["counters"] as const,
     policy: Snapshot.policy.everyN(10),
   }),
   methods: {
     value: method({
-      params: {},
+      input: {},
       success: Schema.Number,
       http: [Http.get("/value")],
     }),
     increment: method({
-      params: {},
+      input: {},
       success: Schema.Number,
       http: [Http.post("/increment")],
     }),
     add: method({
-      params: { by: Schema.Number },
+      input: { by: Schema.Number },
       success: Schema.Number,
       http: [Http.post("/add"), Http.get("/add?by={by}")],
     }),
     reset: method({
-      params: {},
+      input: {},
       success: Schema.Void,
       http: [Http.post("/reset")],
     }),

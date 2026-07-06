@@ -34,17 +34,17 @@ export const Lookup = defineAgent({
   name: "Lookup",
   description: "Demo agent with typed-error methods (Schema.Result wire envelope)",
   mode: "durable",
-  constructorParams: { realm: Schema.String },
+  id: { realm: Schema.String },
   methods: {
     /** Returns 7 on success; fails with NotFoundError when id === "missing". */
     fetch: method({
-      params: { id: Schema.String },
+      input: { id: Schema.String },
       success: Schema.Number,
       error: NotFoundError,
     }),
     /** Void on success; fails with NotFoundError when fail is true. */
     cmd: method({
-      params: { fail: Schema.Boolean },
+      input: { fail: Schema.Boolean },
       success: Schema.Void,
       error: NotFoundError,
     }),
@@ -78,7 +78,7 @@ export const LookupCaller = defineAgent({
   name: "LookupCaller",
   description: "Drives Lookup over RPC; reports what the typed-E channel delivered",
   mode: "durable",
-  constructorParams: { realm: Schema.String },
+  id: { realm: Schema.String },
   methods: {
     /**
      * RPC-call `Lookup.fetch({ id })`. Returns:
@@ -89,12 +89,12 @@ export const LookupCaller = defineAgent({
      *   - `transport:<json>` for any non-typed RemoteCallError
      */
     fetchAndReport: method({
-      params: { id: Schema.String },
+      input: { id: Schema.String },
       success: Schema.String,
     }),
     /** Same but for the Schema.Void success / typed-error variant. */
     cmdAndReport: method({
-      params: { fail: Schema.Boolean },
+      input: { fail: Schema.Boolean },
       success: Schema.String,
     }),
   },
