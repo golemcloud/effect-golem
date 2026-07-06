@@ -165,7 +165,7 @@ defineAgent({
   id: { name: Schema.String, id: Schema.String },
   http: Http.mount("/agents/{name}/{id}"),
   methods: {
-    op: method({ input: {}, returns: Schema.String }),
+    op: method({ input: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
@@ -175,7 +175,7 @@ defineAgent({
   name: "M4_NoHttp",
   id: { name: Schema.String, id: Schema.String },
   methods: {
-    op: method({ input: {}, returns: Schema.String }),
+    op: method({ input: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
@@ -186,7 +186,7 @@ defineAgent({
   id: {},
   http: Http.mount("/agents"),
   methods: {
-    op: method({ input: {}, returns: Schema.String }),
+    op: method({ input: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
@@ -197,7 +197,7 @@ defineAgent({
   // @ts-expect-error mount path is missing the `{id}` id field
   http: Http.mount("/agents/{name}"),
   methods: {
-    op: method({ input: {}, returns: Schema.String }),
+    op: method({ input: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
@@ -208,7 +208,7 @@ defineAgent({
   // @ts-expect-error mount path is missing `{name}` and `{id}`
   http: Http.mount("/agents"),
   methods: {
-    op: method({ input: {}, returns: Schema.String }),
+    op: method({ input: {}, success: Schema.String }),
   },
 }).implement(() => Effect.succeed({ op: () => Effect.succeed("ok") }))
 
@@ -343,14 +343,14 @@ void _bAnyOk
 // Positive compile-time test: plain string-bindable keys remain usable.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.post("/items/{id}")],
 })
 
 // Negative compile-time test: ElementSpec param can't be bound from a path.
 void method({
   input: { id: Schema.String, text: UnstructuredText() },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — forbids ElementSpec in path bindings
   http: [Http.post("/items/{text}")],
 })
@@ -358,7 +358,7 @@ void method({
 // Negative compile-time test: ElementSpec param can't be bound from a query.
 void method({
   input: { text: UnstructuredText() },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — forbids ElementSpec in query bindings
   http: [Http.get("/items?t={text}")],
 })
@@ -472,20 +472,20 @@ void (() =>
 // Positive — distinct names across path / query / header compile.
 void method({
   input: { id: Schema.String, q: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}?q={q}")],
 })
 
 void method({
   input: { id: Schema.String, q: Schema.String, idem: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.post("/items/{id}?q={q}", { headers: { "X-Idem": "idem" } as const })],
 })
 
 // Positive — pipeable form, header bound to a fresh name.
 void method({
   input: { id: Schema.String, idem: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.post("/items/{id}").pipe(Http.withHeader("X-Idem", "idem"))],
 })
 
@@ -497,7 +497,7 @@ void method({
 // Negative — path × query duplicate.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — 'id' is bound from both path and query
   http: [Http.get("/items/{id}?id={id}")],
 })
@@ -505,7 +505,7 @@ void method({
 // Negative — path × query duplicate (verb shorthand: post).
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — 'id' is bound from both path and query
   http: [Http.post("/items/{id}?id={id}")],
 })
@@ -513,7 +513,7 @@ void method({
 // Negative — path × query duplicate (Http.endpoint generic form).
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — 'id' is bound from both path and query
   http: [Http.endpoint("PUT", "/items/{id}?id={id}")],
 })
@@ -521,7 +521,7 @@ void method({
 // Negative — path × query duplicate (Http.custom form).
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — 'id' is bound from both path and query
   http: [Http.custom("PURGE", "/items/{id}?id={id}")],
 })
@@ -533,7 +533,7 @@ void method({
 // x is in the query tuple twice.
 void method({
   input: { x: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   // @ts-expect-error — 'x' is bound from two query keys
   http: [Http.get("/items?a={x}&b={x}")],
 })
@@ -541,7 +541,7 @@ void method({
 // Negative — path × header duplicate via withHeader.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'id' is bound from both path and header
     Http.get("/items/{id}").pipe(Http.withHeader("X-Id", "id")),
@@ -551,7 +551,7 @@ void method({
 // Negative — query × header duplicate via withHeader.
 void method({
   input: { q: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'q' is bound from both query and header
     Http.get("/items?q={q}").pipe(Http.withHeader("X-Q", "q")),
@@ -562,7 +562,7 @@ void method({
 // `varName`, distinct header names).
 void method({
   input: { a: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'a' is bound from two distinct headers
     Http.get("/items").pipe(Http.withHeader("X-A1", "a")).pipe(Http.withHeader("X-A2", "a")),
@@ -572,7 +572,7 @@ void method({
 // Positive — path × header are different names.
 void method({
   input: { id: Schema.String, idem: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}").pipe(Http.withHeader("X-Idem", "idem"))],
 })
 
@@ -581,7 +581,7 @@ void method({
 // each in isolation is fine.)
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}"), Http.get("/items?id={id}")],
 })
 
@@ -595,7 +595,7 @@ void method({
 // duplicate-source check.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     Http.get("/items/{id}"),
     // @ts-expect-error — second endpoint binds 'id' from path and query
@@ -609,7 +609,7 @@ void method({
 // the call must still compile when names are distinct.
 void method({
   input: { id: Schema.String, a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}").pipe(Http.withHeaders({ "X-A": "a", "X-B": "b" }))],
 })
 
@@ -621,7 +621,7 @@ void method({
 // Positive — chained `withHeader` calls with case-distinct names compile.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items").pipe(Http.withHeader("X-A", "a"), Http.withHeader("X-B", "b"))],
 })
 
@@ -634,7 +634,7 @@ void method({
 // caught by the same walker. So this MUST be rejected.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'X-A' is declared twice on the same endpoint
     Http.get("/items").pipe(Http.withHeader("X-A", "a"), Http.withHeader("X-A", "b")),
@@ -645,7 +645,7 @@ void method({
 // names (different casing of the same header) — must be rejected.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'X-A' and 'x-a' are case-fold duplicates
     Http.get("/items").pipe(Http.withHeader("X-A", "a"), Http.withHeader("x-a", "b")),
@@ -655,7 +655,7 @@ void method({
 // Negative — three chained headers, case-fold collision between #1 and #3.
 void method({
   input: { a: Schema.String, b: Schema.String, c: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'Content-Type' and 'content-type' are case-fold duplicates
     Http.get("/items").pipe(
@@ -670,7 +670,7 @@ void method({
 // names compiles.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items", { headers: { "X-A": "a", "X-B": "b" } as const })],
 })
 
@@ -678,7 +678,7 @@ void method({
 // duplicates — must be rejected.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — 'X-A' and 'x-a' collide case-insensitively in the headers record
     Http.get("/items", { headers: { "X-A": "a", "x-a": "b" } as const }),
@@ -688,7 +688,7 @@ void method({
 // Negative — record-form via `Http.endpoint` (generic verb).
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — case-fold duplicate via Http.endpoint
     Http.endpoint("PUT", "/items", { headers: { "X-A": "a", "x-a": "b" } as const }),
@@ -698,7 +698,7 @@ void method({
 // Negative — record-form via `Http.custom` (custom verb).
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — case-fold duplicate via Http.custom
     Http.custom("PURGE", "/items", { headers: { "X-A": "a", "x-a": "b" } as const }),
@@ -708,7 +708,7 @@ void method({
 // Negative — record-form via verb shorthand `Http.post`.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — case-fold duplicate via Http.post
     Http.post("/items", { headers: { "X-A": "a", "x-a": "b" } as const }),
@@ -718,7 +718,7 @@ void method({
 // Positive — case-distinct headers via verb shorthand `Http.post`.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.post("/items", { headers: { "X-A": "a", "X-B": "b" } as const })],
 })
 
@@ -726,7 +726,7 @@ void method({
 // non-colliding name compiles.
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     Http.get("/items", { headers: { "X-A": "a" } as const }).pipe(Http.withHeader("X-B", "b")),
   ],
@@ -739,7 +739,7 @@ void method({
 declare const dynamicHeader: string
 void method({
   input: { a: Schema.String, b: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     Http.get("/items").pipe(Http.withHeader(dynamicHeader, "a"), Http.withHeader("X-Other", "b")),
   ],
@@ -757,7 +757,7 @@ void method({
 // to bind, so the bodyless check is trivially satisfied.
 void method({
   input: {},
-  returns: Schema.Number,
+  success: Schema.Number,
   http: [Http.get("/value"), Http.head("/value")],
 })
 
@@ -765,7 +765,7 @@ void method({
 // path variable.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}")],
 })
 
@@ -774,7 +774,7 @@ void method({
 // `Http.get("/add?by={by}")` endpoint and MUST keep compiling.
 void method({
   input: { by: Schema.Number },
-  returns: Schema.Number,
+  success: Schema.Number,
   http: [Http.get("/add?by={by}")],
 })
 
@@ -782,7 +782,7 @@ void method({
 // the literal-options form of `headers`).
 void method({
   input: { idem: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items", { headers: { "X-Idem": "idem" } as const })],
 })
 
@@ -790,7 +790,7 @@ void method({
 // the pipeable `withHeader` form).
 void method({
   input: { idem: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items").pipe(Http.withHeader("X-Idem", "idem"))],
 })
 
@@ -799,14 +799,14 @@ void method({
 // different binding source.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.get("/items/{id}"), Http.head("/items?id={id}")],
 })
 
 // Positive — `Http.head` with the parameter bound from a path variable.
 void method({
   input: { id: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.head("/items/{id}")],
 })
 
@@ -814,7 +814,7 @@ void method({
 // query / header binding for `payload`).
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — bodyless GET cannot have unbound 'payload'
     Http.get("/op"),
@@ -824,7 +824,7 @@ void method({
 // Negative — `Http.head` with an unbound method parameter.
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — bodyless HEAD cannot have unbound 'payload'
     Http.head("/op"),
@@ -834,7 +834,7 @@ void method({
 // Negative — bodyless endpoint binds SOME but not all parameters.
 void method({
   input: { id: Schema.String, name: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     // @ts-expect-error — bodyless GET only binds 'id', leaves 'name' unbound
     Http.get("/items/{id}"),
@@ -846,7 +846,7 @@ void method({
 // The error fires on the bodyless element only.
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [
     Http.post("/op"),
     // @ts-expect-error — bodyless GET cannot have unbound 'payload'
@@ -859,37 +859,37 @@ void method({
 // request body.
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.post("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.put("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.del("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.patch("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.options("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.trace("/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.connect("/op")],
 })
 
@@ -899,12 +899,12 @@ void method({
 // NOT fire here, even with an unbound parameter.
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.endpoint("GET", "/op")],
 })
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.endpoint("HEAD", "/op")],
 })
 
@@ -913,7 +913,7 @@ void method({
 // bodyless, so a custom `"PURGE"` is never subject to the check.
 void method({
   input: { payload: Schema.String },
-  returns: Schema.String,
+  success: Schema.String,
   http: [Http.custom("PURGE", "/op")],
 })
 
@@ -927,7 +927,7 @@ void defineAgent({
   name: "Phase10NoHttpMount",
   id: { name: Schema.String },
   methods: {
-    value: method({ input: {}, returns: Schema.Number }),
+    value: method({ input: {}, success: Schema.Number }),
   },
 }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) }))
 
@@ -937,7 +937,7 @@ void defineAgent({
   name: "Phase10NoHttpMethodsAtAll",
   id: {},
   methods: {
-    ping: method({ input: {}, returns: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 }).implement(() => Effect.succeed({ ping: () => Effect.void }))
 
@@ -949,7 +949,7 @@ void defineAgent({
   methods: {
     value: method({
       input: {},
-      returns: Schema.Number,
+      success: Schema.Number,
       http: [Http.get("/value")],
     }),
   },
@@ -965,7 +965,7 @@ void defineAgent({
   methods: {
     value: method({
       input: {},
-      returns: Schema.Number,
+      success: Schema.Number,
       http: [Http.get("/value")],
     }),
   },
@@ -979,7 +979,7 @@ void defineAgent({
   name: "Phase10WithHttpPipeMissingMount",
   id: {},
   methods: {
-    value: method({ input: {}, returns: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),
+    value: method({ input: {}, success: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),
   },
 }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) }))
 
@@ -989,7 +989,7 @@ void defineAgent({
   name: "Phase10EmptyHttpArray",
   id: {},
   methods: {
-    value: method({ input: {}, returns: Schema.Number, http: [] }),
+    value: method({ input: {}, success: Schema.Number, http: [] }),
   },
 }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) }))
 
@@ -999,6 +999,6 @@ void defineAgent({
   id: {},
   http: Http.mount("/agents"),
   methods: {
-    value: method({ input: {}, returns: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),
+    value: method({ input: {}, success: Schema.Number }).pipe(Method.withHttp(Http.get("/value"))),
   },
 }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) }))

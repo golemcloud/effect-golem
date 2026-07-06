@@ -68,7 +68,7 @@ declare const methodHasHttpBrand: unique symbol
 
 /**
  * A `MethodSpec` describes a method's wire contract — its named input
- * parameters, returns type, and typed failure type — *without* an
+ * parameters, success type, and typed failure type — *without* an
  * implementation.
  *
  * Used inside `defineAgent({ methods })` so that the agent type can be
@@ -108,7 +108,7 @@ export interface MethodSpec<
   extends Pipeable.Pipeable {
   readonly [methodHasHttpBrand]?: HasHttp
   readonly input: Input
-  readonly returns: Success
+  readonly success: Success
   readonly error: Error
   /** Free-text description, surfaced as `agent-method.description`. */
   readonly description?: string
@@ -147,7 +147,7 @@ export interface MethodSpec<
  *   {@link Multimodal} (multi-element parameter). The keys become the
  *   `data-schema` element names emitted into the WIT metadata.
  *
- * - `returns` — a `Schema.Top` describing the method's returns value
+ * - `success` — a `Schema.Top` describing the method's success value
  *   (the `A` of the resulting `Effect<A, E, R>`).
  *
  * - `error` *(optional)* — a `Schema.Top` describing typed failures
@@ -180,7 +180,7 @@ export interface MethodSpec<
  *
  * const add = method({
  *   input: { by: Schema.Number },
- *   returns: Schema.Number,
+ *   success: Schema.Number,
  *   error: Schema.String,
  *   description: "Add `by` to the counter",
  *   promptHint: "Use this to increment the counter by a number",
@@ -193,7 +193,7 @@ export interface MethodSpec<
  * ```ts
  * import { Http, method, Schema, withDescription, withHttp } from "effect-golem"
  *
- * method({ input: { by: Schema.Number }, returns: Schema.Number }).pipe(
+ * method({ input: { by: Schema.Number }, success: Schema.Number }).pipe(
  *   withHttp(Http.post("/add"), Http.get("/add?by={by}")),
  *   withDescription("Add `by` to the counter"),
  * )
@@ -266,10 +266,7 @@ type ValidateEndpointsTuple<Eps extends ReadonlyArray<EndpointDef<string>>, Inpu
     ? Kind extends "bodyless"
       ? [Exclude<keyof Input & string, V>] extends [never]
         ? ValidateEndpointStructure<Eps[K], B, HN>
-        : Invalid<`GET/HEAD endpoint cannot have unbound param '${Exclude<
-            keyof Input & string,
-            V
-          > &
+        : Invalid<`GET/HEAD endpoint cannot have unbound param '${Exclude<keyof Input & string, V> &
             string}' (only path / query / header bindings are allowed because there is no request body)`>
       : ValidateEndpointStructure<Eps[K], B, HN>
     : Eps[K]
@@ -322,7 +319,7 @@ export const method: {
     const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Input>>> = readonly [],
   >(spec: {
     readonly input: Input
-    readonly returns: Success
+    readonly success: Success
     readonly error: Error
     readonly description?: string
     readonly promptHint?: string
@@ -334,7 +331,7 @@ export const method: {
     const Eps extends ReadonlyArray<EndpointDef<BindableKeys<Input>>> = readonly [],
   >(spec: {
     readonly input: Input
-    readonly returns: Success
+    readonly success: Success
     readonly description?: string
     readonly promptHint?: string
     readonly http?: ValidateEndpointsTuple<Eps, Input>
@@ -348,7 +345,7 @@ export const method: {
 // so users can compose them with the canonical Effect `.pipe(...)`
 // style, e.g.:
 //
-//   method({ input: { by: Schema.Number }, returns: Schema.Number }).pipe(
+//   method({ input: { by: Schema.Number }, success: Schema.Number }).pipe(
 //     Method.withHttp(Http.post("/add"), Http.get("/add?by={by}")),
 //     Method.withDescription("Add by to the counter"),
 //     Method.withPromptHint("Increment by `by`"),
@@ -482,14 +479,14 @@ export const defineMethod: {
   >(definition: {
     readonly name: string
     readonly input: Input
-    readonly returns: Success
+    readonly success: Success
     readonly error: Error
     readonly body: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], Error["Type"], R>
   }): Method<Input, Success, Error, R>
   <const Input extends MethodParams, Success extends Schema.Top, R>(definition: {
     readonly name: string
     readonly input: Input
-    readonly returns: Success
+    readonly success: Success
     readonly body: (input: MethodInput<Input>) => Effect.Effect<Success["Type"], never, R>
   }): Method<Input, Success, typeof Schema.Void, R>
 } = (definition: any): any => withPipe({ error: Schema.Void, ...definition })
@@ -511,7 +508,7 @@ export const defineMethod: {
 export type Handler<S extends MethodSpec<any, any, any>, CfgTag = never> = (
   input: MethodInput<S["input"]>,
 ) => Effect.Effect<
-  S["returns"]["Type"],
+  S["success"]["Type"],
   S["error"]["Type"],
   Principal | SelfAgentId | HostServices | CfgTag
 >
@@ -587,8 +584,8 @@ export interface MethodCodec<
    */
   readonly errorWrapped: boolean
   /**
-   * `true` when `spec.returns` is `Schema.Void`. With `errorWrapped`, the wire
-   * `result<_, E>` uses an empty-record stand-in for the returns arm, and the
+   * `true` when `spec.success` is `Schema.Void`. With `errorWrapped`, the wire
+   * `result<_, E>` uses an empty-record stand-in for the success arm, and the
    * SDK substitutes `undefined` ↔ `{}` automatically.
    */
   readonly successVoid: boolean
@@ -650,18 +647,18 @@ export const compileMethodSpec = <
 ): Effect.Effect<MethodCodec<Input, Success, Error>, UnsupportedSchemaError> =>
   Effect.gen(function* () {
     const errorWrapped = !isVoidSchema(spec.error)
-    const successVoid = isVoidSchema(spec.returns)
-    // When the method declares a non-Void typed error, fold returns+error into
+    const successVoid = isVoidSchema(spec.success)
+    // When the method declares a non-Void typed error, fold success+error into
     // a single `result<S, E>` (the only channel for user-typed errors;
     // `AgentError` is reserved for host/SDK-level conditions). The schema model
     // has no free-standing unit type, so a void returns uses an empty-record
     // stand-in and the SDK substitutes `undefined` ↔ `{}` on encode/decode.
     const responseSchema: Schema.Top = errorWrapped
       ? (Schema.Result(
-          successVoid ? (Schema.Struct({}) as Schema.Top) : spec.returns,
+          successVoid ? (Schema.Struct({}) as Schema.Top) : spec.success,
           spec.error,
         ) as unknown as Schema.Top)
-      : spec.returns
+      : spec.success
     const output: MethodCodec<Input, Success, Error>["output"] =
       !errorWrapped && successVoid
         ? { tag: "unit" }
@@ -712,11 +709,11 @@ export class InvalidDataValueError {
  *   encoded into a single-element `tuple` (or empty tuple for void).
  *
  * - `errorWrapped === true`: the handler's typed `E` is folded into
- *   `Result.fail(e)` via `Effect.matchEffect`; returns becomes
+ *   `Result.fail(e)` via `Effect.matchEffect`; success becomes
  *   `Result.succeed(s)`. The `Result` is encoded through
  *   `mc.outputElement`, whose codec is `Schema.Result(returns, error)`.
  *   `AgentError.custom-error` is NOT used — typed user errors travel
- *   on the returns channel as a component-model `result<S, E>`.
+ *   on the success channel as a component-model `result<S, E>`.
  *
  * Defects (`Effect.die`) and SDK-internal failures continue to propagate
  * untouched — they are not user-domain errors and surface as host-level
@@ -778,7 +775,7 @@ const runHandlerAndEncode = <
  *
  * Input is the `record` value whose fields line up positionally with the
  * declared parameters. When the method declares a non-Void typed error, the
- * output value is a `result<S, E>` carrying either the returns value or the
+ * output value is a `result<S, E>` carrying either the success value or the
  * typed failure (the ONLY channel for user-typed errors; `AgentError` is
  * reserved for host/SDK-level conditions).
  *

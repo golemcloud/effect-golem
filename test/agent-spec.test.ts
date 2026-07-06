@@ -16,7 +16,7 @@ const SpecOnlyAgent = defineAgent({
   name: "SpecOnlyAgent",
   id: { name: Schema.String },
   methods: {
-    ping: method({ input: {}, returns: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 })
 
@@ -24,7 +24,7 @@ const ImplementedAgent = defineAgent({
   name: "ImplementedAgent",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ input: {}, returns: Schema.Number }),
+    getValue: method({ input: {}, success: Schema.Number }),
   },
 }).implement(({ initial }) =>
   Effect.gen(function* () {
@@ -71,7 +71,7 @@ describe("defineAgent / .implement split", () => {
     const spec = defineAgent({
       name: "SharedClientAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     expect(implemented.client).toBe(spec.client)
@@ -81,7 +81,7 @@ describe("defineAgent / .implement split", () => {
     const spec = defineAgent({
       name: "BackRefAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     expect(implemented.spec).toBe(spec)
@@ -91,13 +91,13 @@ describe("defineAgent / .implement split", () => {
     const literal = {
       name: "MutationCheckAgent",
       id: { name: Schema.String },
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }
     const spec = defineAgent(literal)
     // Mutate the original literal's methods map AFTER defineAgent has
     // returned. The spec must have captured a frozen copy.
     const mutated = literal.methods as Record<string, unknown>
-    mutated["sneaky"] = method({ input: {}, returns: Schema.Void })
+    mutated["sneaky"] = method({ input: {}, success: Schema.Void })
     // The spec's methods record was shallow-cloned + frozen, so the
     // post-defineAgent mutation must not be reflected.
     expect(Object.keys(spec.methods)).toEqual(["ping"])
@@ -110,7 +110,7 @@ describe("defineAgent / .implement split", () => {
     const specA = defineAgent({
       name: "DoubleImplAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     specA.implement(() => Effect.succeed({ ping: () => Effect.void }))
 
@@ -119,7 +119,7 @@ describe("defineAgent / .implement split", () => {
     const specB = defineAgent({
       name: "DoubleImplAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     specB.implement(() => Effect.succeed({ ping: () => Effect.void }))
 
@@ -139,7 +139,7 @@ describe("defineAgent / .implement split", () => {
     const spec = defineAgent({
       name: "SingleShotAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     // First call: succeeds and registers.
     spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
@@ -173,7 +173,7 @@ describe("defineAgent / .implement split", () => {
     const spec = defineAgent({
       name: "NoReImplementAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     // @ts-expect-error — `implement` MUST NOT exist on ImplementedAgent.
@@ -189,7 +189,7 @@ describe("defineAgent / .implement split", () => {
     const noSnap = defineAgent({
       name: "NoSnapAgent",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((input) => {
       // input is the constructor-input record; no second arg
       void input
@@ -204,7 +204,7 @@ describe("defineAgent / .implement split", () => {
         schema: Schema.Struct({ count: Schema.Number }),
         policy: Snapshot.policy.default,
       }),
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((input, snap) =>
       Effect.gen(function* () {
         void input

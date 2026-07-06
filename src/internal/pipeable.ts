@@ -27,7 +27,7 @@ import { Pipeable } from "effect"
  *
  * ```ts
  * Http.get("/x").pipe(Http.withAuth(true), Http.withCors("https://x.com"))
- * method({ input: ..., returns: ... }).pipe(
+ * method({ input: ..., success: ... }).pipe(
  *   Method.withHttp(Http.get("/x")),
  *   Method.withDescription("..."),
  * )

@@ -56,8 +56,8 @@ const SqliteCounter = defineAgent({
     policy: Snapshot.policy.everyN(5),
   }),
   methods: {
-    note: method({ input: {}, returns: Schema.String }),
-    setNote: method({ input: { v: Schema.String }, returns: Schema.Void }),
+    note: method({ input: {}, success: Schema.String }),
+    setNote: method({ input: { v: Schema.String }, success: Schema.Void }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -84,7 +84,7 @@ const SqliteForgetfulAttach = defineAgent({
     policy: Snapshot.policy.default,
   }),
   methods: {
-    ping: method({ input: {}, returns: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 }).implement((_input, snap) =>
   Effect.gen(function* () {
@@ -137,11 +137,7 @@ describe("snapshot + sqlite databases", () => {
       restoreCalled = { db, bytes }
     })
 
-    await guest.initialize(
-      "SqliteCounterTest",
-      recordInput(xWv),
-      oidcZoe,
-    )
+    await guest.initialize("SqliteCounterTest", recordInput(xWv), oidcZoe)
 
     const snapshot = await dispatchSaveSnapshot()
     expect(snapshot.mimeType).toMatch(/^multipart\/mixed; boundary=/)
@@ -168,11 +164,7 @@ describe("snapshot + sqlite databases", () => {
     __setIsAutocommitDatabaseSyncForTest(() => false)
     __setSerializeDatabaseSyncForTest(() => new Uint8Array([0]))
 
-    await guest.initialize(
-      "SqliteCounterTest",
-      recordInput(xWv),
-      oidcZoe,
-    )
+    await guest.initialize("SqliteCounterTest", recordInput(xWv), oidcZoe)
     await expect(dispatchSaveSnapshot()).rejects.toThrow(/SnapshotDatabaseNotInAutocommitError/)
   })
 
@@ -183,11 +175,7 @@ describe("snapshot + sqlite databases", () => {
     __setSerializeDatabaseSyncForTest(() => new Uint8Array([1, 2]))
     __setRestoreDatabaseSyncForTest(() => {})
 
-    await guest.initialize(
-      "SqliteCounterTest",
-      recordInput(xWv),
-      oidcZoe,
-    )
+    await guest.initialize("SqliteCounterTest", recordInput(xWv), oidcZoe)
     const snap = await dispatchSaveSnapshot()
 
     // Hand-craft an envelope with an extra 'db:bogus' part by editing

@@ -20,7 +20,7 @@ describe("UnstructuredText element", () => {
     Effect.gen(function* () {
       const echo = method({
         input: { msg: UnstructuredText() },
-        returns: Schema.String,
+        success: Schema.String,
       })
       const mc = yield* compileMethodSpec("echo", echo)
       expect(mc.inputCodecs.length).toBe(1)
@@ -53,7 +53,7 @@ describe("UnstructuredText element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { msg: UnstructuredText({ restrictions: [{ languageCode: "en" }] }) },
-        returns: Schema.Void,
+        success: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const root = mc.inputCodecs[0]!.codec.graph.root
@@ -69,7 +69,7 @@ describe("UnstructuredText element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { msg: UnstructuredText() },
-        returns: Schema.String,
+        success: Schema.String,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -89,7 +89,7 @@ describe("UnstructuredText element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { msg: UnstructuredText() },
-        returns: Schema.Void,
+        success: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -107,7 +107,7 @@ describe("UnstructuredBinary element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
-        returns: Schema.Void,
+        success: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const root = mc.inputCodecs[0]!.codec.graph.root
@@ -124,7 +124,7 @@ describe("UnstructuredBinary element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { blob: UnstructuredBinary() },
-        returns: Schema.String,
+        success: Schema.String,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -162,7 +162,7 @@ describe("UnstructuredBinary element", () => {
     Effect.gen(function* () {
       const m = method({
         input: { blob: UnstructuredBinary({ restrictions: [{ mimeType: "image/png" }] }) },
-        returns: Schema.Void,
+        success: Schema.Void,
       })
       const mc = yield* compileMethodSpec("m", m)
       const codec = mc.inputCodecs[0]!.codec.codec

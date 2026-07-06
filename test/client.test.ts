@@ -18,8 +18,8 @@ const Counter = defineAgent({
   mode: "durable",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ input: {}, returns: Schema.Number }),
-    add: method({ input: { by: Schema.Number }, returns: Schema.Void }),
+    getValue: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -33,7 +33,7 @@ const Worker = defineAgent({
   mode: "ephemeral",
   id: { jobId: Schema.String },
   methods: {
-    run: method({ input: { times: Schema.Number }, returns: Schema.String }),
+    run: method({ input: { times: Schema.Number }, success: Schema.String }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -65,7 +65,11 @@ const encodeSv = <S extends Schema.Top>(
   Effect.gen(function* () {
     const { toWitCodec } = yield* Effect.promise(() => import("../src/WitCodec.js"))
     const codec = yield* toWitCodec(s)
-    return yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<SchemaValue, unknown, never>
+    return yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<
+      SchemaValue,
+      unknown,
+      never
+    >
   })
 
 /**
@@ -457,7 +461,7 @@ describe("AgentClient overrides (config)", () => {
     config: CounterCfg,
     id: { initial: Schema.Number },
     methods: {
-      noop: method({ input: {}, returns: Schema.Void }),
+      noop: method({ input: {}, success: Schema.Void }),
     },
   }).implement(() =>
     Effect.succeed({
@@ -807,12 +811,12 @@ const Lookup = defineAgent({
   methods: {
     fetch: method({
       input: { id: Schema.String },
-      returns: Schema.Number,
+      success: Schema.Number,
       error: NotFoundErr,
     }),
     cmd: method({
       input: { fail: Schema.Boolean },
-      returns: Schema.Void,
+      success: Schema.Void,
       error: NotFoundErr,
     }),
   },
@@ -925,39 +929,41 @@ describe("AgentClient — typed errors", () => {
     }),
   )
 
-  it.effect("Schema.Void success + typed error: a missing wire value is a wire-format violation", () =>
-    Effect.gen(function* () {
-      const { fake, layer } = yield* makeRpcRuntime
-      // Methods declared with `Schema.Void` AND a typed error always
-      // carry a `result<{}, E>` value on the wire (output schema is
-      // `single`, never `unit`). A missing value (`option::none`) in
-      // that case is malformed and must be rejected — even though
-      // void+no-error methods accept it.
-      yield* fake.setResponder(({ methodName }) => {
-        if (methodName === "cmd") {
-          return {
-            tag: "ok",
-            val: undefined,
+  it.effect(
+    "Schema.Void success + typed error: a missing wire value is a wire-format violation",
+    () =>
+      Effect.gen(function* () {
+        const { fake, layer } = yield* makeRpcRuntime
+        // Methods declared with `Schema.Void` AND a typed error always
+        // carry a `result<{}, E>` value on the wire (output schema is
+        // `single`, never `unit`). A missing value (`option::none`) in
+        // that case is malformed and must be rejected — even though
+        // void+no-error methods accept it.
+        yield* fake.setResponder(({ methodName }) => {
+          if (methodName === "cmd") {
+            return {
+              tag: "ok",
+              val: undefined,
+            }
           }
-        }
-        return { tag: "throw", error: new Error("unexpected method") }
-      })
+          return { tag: "throw", error: new Error("unexpected method") }
+        })
 
-      const result = yield* Effect.provide(
-        Effect.result(
-          Effect.gen(function* () {
-            const remote = yield* Lookup.client.get({ realm: "users" })
-            return yield* remote.cmd({ fail: false })
-          }) as Effect.Effect<unknown, any, never>,
-        ),
-        layer,
-      )
-      expect(result._tag).toBe("Failure")
-      if (result._tag !== "Failure") return
-      const failure: any = result.failure
-      expect(failure._tag).toBe("RemoteResponseError")
-      expect(failure.reason).toMatch(/expected a return value, got none/)
-    }),
+        const result = yield* Effect.provide(
+          Effect.result(
+            Effect.gen(function* () {
+              const remote = yield* Lookup.client.get({ realm: "users" })
+              return yield* remote.cmd({ fail: false })
+            }) as Effect.Effect<unknown, any, never>,
+          ),
+          layer,
+        )
+        expect(result._tag).toBe("Failure")
+        if (result._tag !== "Failure") return
+        const failure: any = result.failure
+        expect(failure._tag).toBe("RemoteResponseError")
+        expect(failure.reason).toMatch(/expected a return value, got none/)
+      }),
   )
 
   it.effect("Schema.Void success + typed error: failure arm surfaces typed E", () =>

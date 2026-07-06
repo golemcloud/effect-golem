@@ -27,7 +27,7 @@ describe("multimodal()", () => {
     Effect.gen(function* () {
       const m = method({
         input: { content: Content },
-        returns: Schema.String,
+        success: Schema.String,
       })
       const mc = yield* compileMethodSpec("send", m)
       expect(mc.inputCodecs.length).toBe(1)
@@ -51,7 +51,7 @@ describe("multimodal()", () => {
     Effect.gen(function* () {
       const m = method({
         input: { content: Content },
-        returns: Schema.Number,
+        success: Schema.Number,
       })
       const mc = yield* compileMethodSpec("count", m)
       const codec = mc.inputCodecs[0]!.codec.codec
@@ -83,7 +83,7 @@ describe("multimodal()", () => {
     Effect.gen(function* () {
       const m = method({
         input: { content: Content, extra: Schema.String },
-        returns: Schema.Void,
+        success: Schema.Void,
       })
       const exit = yield* Effect.exit(compileMethodSpec("bad", m))
       expect(exit._tag).toBe("Failure")

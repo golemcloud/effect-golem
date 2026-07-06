@@ -67,9 +67,9 @@ const AutoSnapshotCounter = defineAgent({
     policy: Snapshot.policy.everyN(5),
   }),
   methods: {
-    value: method({ input: {}, returns: Schema.Number }),
-    add: method({ input: { by: Schema.Number }, returns: Schema.Number }),
-    owner: method({ input: {}, returns: Schema.String }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
+    owner: method({ input: {}, success: Schema.String }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -99,8 +99,8 @@ const CustomSnapshotAgent = defineAgent({
   id: { name: Schema.String },
   snapshotting: Snapshot.custom({ policy: Snapshot.policy.periodic(Duration.seconds(30)) }),
   methods: {
-    value: method({ input: {}, returns: Schema.Number }),
-    add: method({ input: { by: Schema.Number }, returns: Schema.Number }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -143,7 +143,7 @@ const ForgetfulSnapshotAgent = defineAgent({
     policy: Snapshot.policy.default,
   }),
   methods: {
-    noop: method({ input: {}, returns: Schema.Void }),
+    noop: method({ input: {}, success: Schema.Void }),
   },
 })
   // Intentionally never call snap.init: triggers SnapshotNotBoundError.
@@ -175,8 +175,8 @@ const ConfigCustomAgent = defineAgent({
   config: ConfigCustomCfg,
   snapshotting: Snapshot.custom({ policy: Snapshot.policy.default }),
   methods: {
-    value: method({ input: {}, returns: Schema.Number }),
-    add: method({ input: { by: Schema.Number }, returns: Schema.Number }),
+    value: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Number }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -272,7 +272,7 @@ describe("snapshotting", () => {
       const NoSnapAgent = defineAgent({
         name: "NoSnapAgent",
         id: {},
-        methods: { ping: method({ input: {}, returns: Schema.Void }) },
+        methods: { ping: method({ input: {}, success: Schema.Void }) },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       void NoSnapAgent
       const types = yield* Effect.promise(() => guest.discoverAgentTypes())
@@ -475,7 +475,7 @@ describe("snapshotting", () => {
     const NoSnap = defineAgent({
       name: "NoSnap",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     void NoSnap
     await guest.initialize("NoSnap", EMPTY_INPUT, anonymous)
@@ -532,7 +532,7 @@ describe("snapshotting", () => {
         schema: Schema.Number,
         policy: Snapshot.policy.default,
       }),
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((_input, snap) =>
       Effect.gen(function* () {
         yield* snap.init(0)
@@ -541,8 +541,8 @@ describe("snapshotting", () => {
       }),
     )
     void TwiceBound
-    await expect(
-      guest.initialize("TwiceBound", EMPTY_INPUT, anonymous),
-    ).rejects.toThrow(/SnapshotAlreadyBoundError|already bound/)
+    await expect(guest.initialize("TwiceBound", EMPTY_INPUT, anonymous)).rejects.toThrow(
+      /SnapshotAlreadyBoundError|already bound/,
+    )
   })
 })

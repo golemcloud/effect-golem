@@ -46,11 +46,11 @@ const Greeter = defineAgent({
   methods: {
     greet: method({
       input: { person: Person, greeting: Schema.String },
-      returns: Schema.String,
+      success: Schema.String,
       description: "Greet the given person with the given greeting",
       promptHint: "Use to produce a friendly salutation for a Person.",
     }),
-    ping: method({ input: {}, returns: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -65,8 +65,8 @@ const Counter = defineAgent({
   name: "Counter",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ input: {}, returns: Schema.Number }),
-    add: method({ input: { by: Schema.Number }, returns: Schema.Void }),
+    getValue: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Void }),
   },
 }).implement(({ initial }) =>
   Effect.gen(function* () {
@@ -101,9 +101,9 @@ const PrincipalAgent = defineAgent({
   name: "PrincipalAgent",
   id: {},
   methods: {
-    owner: method({ input: {}, returns: Schema.String }),
-    caller: method({ input: {}, returns: Schema.String }),
-    callerForked: method({ input: {}, returns: Schema.String }),
+    owner: method({ input: {}, success: Schema.String }),
+    caller: method({ input: {}, success: Schema.String }),
+    callerForked: method({ input: {}, success: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -152,9 +152,9 @@ const ConfigAgent = defineAgent({
   config: TestConfig,
   id: {},
   methods: {
-    initialGreeting: method({ input: {}, returns: Schema.String }),
-    currentGreeting: method({ input: {}, returns: Schema.String }),
-    keyTail: method({ input: {}, returns: Schema.String }),
+    initialGreeting: method({ input: {}, success: Schema.String }),
+    currentGreeting: method({ input: {}, success: Schema.String }),
+    keyTail: method({ input: {}, success: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -238,9 +238,7 @@ describe("agent-guest exports", () => {
 
   it.effect("initialize + invoke + getDefinition round-trip a greet call", () =>
     Effect.gen(function* () {
-      yield* Effect.promise(() =>
-        guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal),
-      )
+      yield* Effect.promise(() => guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal))
 
       const def = yield* Effect.promise(() => guest.getDefinition())
       expect(def.typeName).toBe("Greeter")
@@ -266,12 +264,8 @@ describe("agent-guest exports", () => {
 
   it.effect("invoke returns undefined for unit-returning methods", () =>
     Effect.gen(function* () {
-      yield* Effect.promise(() =>
-        guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal),
-      )
-      const out = yield* Effect.promise(() =>
-        guest.invoke("ping", EMPTY_INPUT, anonymousPrincipal),
-      )
+      yield* Effect.promise(() => guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal))
+      const out = yield* Effect.promise(() => guest.invoke("ping", EMPTY_INPUT, anonymousPrincipal))
       expect(out).toBeUndefined()
     }),
   )
@@ -283,11 +277,7 @@ describe("agent-guest exports", () => {
       // initialize Counter with initial = 10
       const initialSv = yield* Schema.encodeEffect(numberCodec.codec)(10)
       yield* Effect.promise(() =>
-        guest.initialize(
-          "Counter",
-          schemaValueToWit(v.record([initialSv])),
-          anonymousPrincipal,
-        ),
+        guest.initialize("Counter", schemaValueToWit(v.record([initialSv])), anonymousPrincipal),
       )
 
       // add 5 twice
@@ -352,16 +342,16 @@ describe("agent-guest exports", () => {
   )
 
   it("invoke fails before initialize", async () => {
-    await expect(
-      guest.invoke("greet", EMPTY_INPUT, anonymousPrincipal),
-    ).rejects.toThrow(/not initialized/)
+    await expect(guest.invoke("greet", EMPTY_INPUT, anonymousPrincipal)).rejects.toThrow(
+      /not initialized/,
+    )
   })
 
   it("initialize twice fails", async () => {
     await guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal)
-    await expect(
-      guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal),
-    ).rejects.toThrow(/already initialized/)
+    await expect(guest.initialize("Greeter", EMPTY_INPUT, anonymousPrincipal)).rejects.toThrow(
+      /already initialized/,
+    )
   })
 
   it("defining two agents with the same name surfaces from discoverAgentTypes", async () => {
@@ -374,7 +364,7 @@ describe("agent-guest exports", () => {
     defineAgent({
       name: "Greeter",
       id: {},
-      methods: { ping: method({ input: {}, returns: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     let caught: unknown
     try {
@@ -439,7 +429,9 @@ describe("agent-guest exports", () => {
         guest.invoke("owner", EMPTY_INPUT, anonymousPrincipal),
       )
       if (ownerOut === undefined) throw new Error()
-      const ownerDecoded = yield* Schema.decodeEffect(stringCodec.codec)(schemaValueFromWit(ownerOut))
+      const ownerDecoded = yield* Schema.decodeEffect(stringCodec.codec)(
+        schemaValueFromWit(ownerOut),
+      )
       expect(ownerDecoded).toBe("oidc:alice")
     }),
   )
@@ -471,7 +463,11 @@ describe("agent-guest exports", () => {
         const wv = (s: string) =>
           schemaValueToWit(
             Effect.runSync(
-              Schema.encodeEffect(stringCodec.codec)(s) as Effect.Effect<SchemaValue, unknown, never>,
+              Schema.encodeEffect(stringCodec.codec)(s) as Effect.Effect<
+                SchemaValue,
+                unknown,
+                never
+              >,
             ),
           )
 

@@ -46,7 +46,7 @@
  *   methods: {
  *     waitForPayment: method({
  *       input: {},
- *       returns: PaymentEvent,
+ *       success: PaymentEvent,
  *       http: [Http.post("/wait")],
  *     }),
  *   },

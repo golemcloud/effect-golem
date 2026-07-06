@@ -48,7 +48,7 @@ const runFail = <A, E>(eff: Effect.Effect<A, E>): Effect.Effect<E, Error> =>
     const exit = yield* Effect.exit(eff)
     if (exit._tag === "Success") {
       return yield* Effect.fail(
-        new Error(`expected failure, got returns: ${JSON.stringify(exit.value)}`),
+        new Error(`expected failure, got success: ${JSON.stringify(exit.value)}`),
       )
     }
     const opt = Cause.findErrorOption(exit.cause)
@@ -422,13 +422,13 @@ describe("Http defineAgent integration", () => {
         methods: {
           value: method({
             input: {},
-            returns: Schema.Number,
+            success: Schema.Number,
             description: "current value",
             http: [get("/value")],
           }),
           add: method({
             input: { by: Schema.Number },
-            returns: Schema.Number,
+            success: Schema.Number,
             http: [post("/add"), get("/add?by={by}")],
           }),
         },
@@ -472,7 +472,7 @@ describe("Http defineAgent integration", () => {
         name: "NoHttp",
         id: {},
         methods: {
-          ping: method({ input: {}, returns: Schema.Void }),
+          ping: method({ input: {}, success: Schema.Void }),
         },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       const types = yield* Effect.promise(() => guest.discoverAgentTypes())
@@ -493,7 +493,7 @@ describe("Http defineAgent integration", () => {
           name: "MissingMount",
           id: {},
           methods: {
-            value: method({ input: {}, returns: Schema.Number, http: [get("/v")] }),
+            value: method({ input: {}, success: Schema.Number, http: [get("/v")] }),
           },
         }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) })),
       /declares HTTP endpoints but no mount/,
@@ -564,7 +564,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             getOne: method({
               input: {} as Record<string, never>,
-              returns: Schema.String,
+              success: Schema.String,
               http: [get("/items/{nope}")] as never,
             }),
           },
@@ -587,7 +587,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { id: Schema.String },
-              returns: Schema.String,
+              success: Schema.String,
               http: [get("/items/{id}?id={id}")] as never,
             }),
           },
@@ -609,7 +609,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { a: Schema.String, b: Schema.String },
-              returns: Schema.String,
+              success: Schema.String,
               http: [get("/items", { headers: { "X-Foo": "a", "x-foo": "b" } as const }) as never],
             }),
           },
@@ -628,7 +628,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { payload: Schema.String },
-              returns: Schema.String,
+              success: Schema.String,
               // @ts-expect-error — bodyless `Http.get(...)` cannot have
               // an unbound `payload` param. We silence the static error
               // here to keep covering the runtime validator (defence in
@@ -652,7 +652,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { obj: Schema.Struct({ a: Schema.String }) },
-              returns: Schema.String,
+              success: Schema.String,
               http: [post("/items/{obj}")],
             }),
           },
@@ -673,7 +673,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { text: UnstructuredText() },
-              returns: Schema.String,
+              success: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // ElementSpec params from path bindings; the runtime
               // validator below still fires for defense-in-depth.
@@ -695,7 +695,7 @@ describe("Http defineAgent integration", () => {
           methods: {
             op: method({
               input: { mm: multimodal({ chunk: UnstructuredText() }) },
-              returns: Schema.String,
+              success: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // Multimodal params from path bindings; the runtime
               // validator below still fires for defense-in-depth.
@@ -720,7 +720,7 @@ describe("Http defineAgent integration", () => {
         methods: {
           find: method({
             input: { id: Schema.String, q: Schema.String, traceId: Schema.String },
-            returns: Schema.String,
+            success: Schema.String,
             http: [get("/items/{id}?q={q}", { headers: { "X-Trace": "traceId" } as const })],
           }),
         },
@@ -783,7 +783,7 @@ describe("Http pipeable combinators — endpoints", () => {
         traceId: Schema.String,
         idempotencyKey: Schema.String,
       },
-      returns: Schema.String,
+      success: Schema.String,
       http: [
         get("/items/{id}").pipe(
           withHeader("X-Trace", "traceId"),
@@ -826,7 +826,7 @@ describe("Http pipeable combinators — endpoints", () => {
         methods: {
           find: method({
             input: { id: Schema.String, traceId: Schema.String },
-            returns: Schema.String,
+            success: Schema.String,
             http: [get("/items/{id}").pipe(withHeader("X-Trace", "traceId"), withAuth(true))],
           }),
         },
@@ -922,7 +922,7 @@ describe("Http pipeable combinators — mounts", () => {
         methods: {
           find: method({
             input: {},
-            returns: Schema.String,
+            success: Schema.String,
             http: [get("/items")],
           }),
         },

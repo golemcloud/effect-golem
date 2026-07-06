@@ -51,10 +51,10 @@ export type {
  *   id: { name: Schema.String },
  *   http: Http.mount("/counters/{agent-type}/{name}", { cors: ["*"] }),
  *   methods: {
- *     value: method({ input: {}, returns: Schema.Number, http: [Http.get("/value")] }),
+ *     value: method({ input: {}, success: Schema.Number, http: [Http.get("/value")] }),
  *     add:   method({
  *       input: { by: Schema.Number },
- *       returns: Schema.Number,
+ *       success: Schema.Number,
  *       http: [
  *         Http.post("/add"),               // by ← JSON body
  *         Http.get("/add?by={by}"),        // by ← query param
