@@ -10,6 +10,7 @@ import {
   withDescription,
   withHttp,
   withPromptHint,
+  withReadOnly,
 } from "../src/Method.js"
 import { get, post } from "../src/Http.js"
 import { toWitCodec } from "../src/WitCodec.js"
@@ -142,6 +143,28 @@ describe("Method pipeable combinators", () => {
     const piped = base.pipe(withPromptHint("Increment by `by`"))
     expect(base.promptHint).toBeUndefined()
     expect(piped.promptHint).toBe("Increment by `by`")
+  })
+
+  it("`method({ readOnly })` carries the read-only option on the spec", () => {
+    const boolForm = method({ input: {}, success: Schema.Number, readOnly: true })
+    expect(boolForm.readOnly).toBe(true)
+    const objForm = method({
+      input: {},
+      success: Schema.Number,
+      readOnly: { cache: "no-cache", usesPrincipal: true },
+    })
+    expect(objForm.readOnly).toEqual({ cache: "no-cache", usesPrincipal: true })
+    const plain = method({ input: {}, success: Schema.Number })
+    expect(plain.readOnly).toBeUndefined()
+  })
+
+  it("`.pipe(withReadOnly(...))` sets readOnly without mutating the input", () => {
+    const base = method({ input: { by: Schema.Number }, success: Schema.Number })
+    const piped = base.pipe(withReadOnly())
+    expect(base.readOnly).toBeUndefined()
+    expect(piped.readOnly).toBe(true)
+    const ttl = base.pipe(withReadOnly({ cache: { ttlNanos: 5n } }))
+    expect(ttl.readOnly).toEqual({ cache: { ttlNanos: 5n } })
   })
 
   it("`.pipe(withHttp(...))` appends endpoints, preserving any pre-existing ones", () => {
