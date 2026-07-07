@@ -2,10 +2,11 @@
  * @since 1.5.0
  */
 import { Effect, Result, Schema } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
-import type * as AgentHost from "golem:agent/host@1.5.0"
-import { parseUuid, uuidToString } from "golem:core/types@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
+import type * as AgentHost from "golem:agent/host@2.0.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
+import { parseUuid, uuidToString } from "golem:core/types@2.0.0"
 import type { AgentMetadata } from "./Agent.js"
 import { DurabilityModeClient } from "./host/DurabilityModeClient.js"
 import {
@@ -16,13 +17,19 @@ import {
 } from "./host/RpcClient.js"
 import {
   compileMethodSpec,
-  compileParamBindings,
+  compileParamCodecs,
   type MethodCodec,
   type MethodInput,
   type MethodParams,
   type MethodSpec,
-  type ParamBinding,
+  type ParamCodec,
 } from "./Method.js"
+import {
+  schemaValueFromWit,
+  schemaValueToWit,
+  v,
+  type SchemaValue,
+} from "./internal/schema-model/index.js"
 import { type UnsupportedSchemaError } from "./WitCodec.js"
 import {
   ConfigError,
@@ -160,15 +167,15 @@ export interface ScheduledInvocation {
  * @category models
  */
 export interface RemoteMethod<
-  Params extends MethodParams,
+  Input extends MethodParams,
   Success extends Schema.Top,
   Error extends Schema.Top,
 > {
-  (input: MethodInput<Params>): Effect.Effect<Success["Type"], RemoteCallError | Error["Type"]>
-  readonly trigger: (input: MethodInput<Params>) => Effect.Effect<void, RemoteCallError>
+  (input: MethodInput<Input>): Effect.Effect<Success["Type"], RemoteCallError | Error["Type"]>
+  readonly trigger: (input: MethodInput<Input>) => Effect.Effect<void, RemoteCallError>
   readonly schedule: (
     scheduledAt: AgentHost.Datetime,
-    input: MethodInput<Params>,
+    input: MethodInput<Input>,
   ) => Effect.Effect<ScheduledInvocation, RemoteCallError>
 }
 
@@ -217,21 +224,21 @@ export interface GetOptions<F extends ConfigFields = never> {
 }
 
 interface DurableClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   F extends ConfigFields = never,
 > {
   readonly get: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly getPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     phantomId: string,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly newPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<
     PhantomRemoteAgent<Methods>,
@@ -240,17 +247,17 @@ interface DurableClient<
 }
 
 interface EphemeralClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   F extends ConfigFields = never,
 > {
   readonly getPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     phantomId: string,
     opts?: GetOptions<F>,
   ) => Effect.Effect<RemoteAgent<Methods>, RemoteCallError | UnsupportedSchemaError | ConfigError>
   readonly newPhantom: (
-    input: MethodInput<C>,
+    input: MethodInput<Id>,
     opts?: GetOptions<F>,
   ) => Effect.Effect<
     PhantomRemoteAgent<Methods>,
@@ -268,14 +275,14 @@ interface EphemeralClient<
  * @category models
  */
 export type AgentClient<
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode,
   F extends ConfigFields = never,
-> = "ephemeral" extends M ? EphemeralClient<C, Methods, F> : DurableClient<C, Methods, F>
+> = "ephemeral" extends M ? EphemeralClient<Id, Methods, F> : DurableClient<Id, Methods, F>
 
 interface CompiledClient {
-  readonly constructorBindings: ReadonlyArray<ParamBinding>
+  readonly constructorCodecs: ReadonlyArray<ParamCodec>
   readonly methodCodecs: ReadonlyMap<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>
 }
 
@@ -287,10 +294,10 @@ const makeCompiler = (
   return Effect.suspend(() => {
     if (cached !== null) return Effect.succeed(cached)
     return Effect.gen(function* () {
-      const constructorBindings = (yield* compileParamBindings(
+      const constructorCodecs = (yield* compileParamCodecs(
         `${def.name} constructor`,
-        def.constructorParams,
-      )) as ReadonlyArray<ParamBinding>
+        def.id,
+      )) as ReadonlyArray<ParamCodec>
       const methodCodecs = new Map<string, MethodCodec<MethodParams, Schema.Top, Schema.Top>>()
       for (const [name, spec] of Object.entries(def.methods)) {
         const mc = (yield* compileMethodSpec(name, spec)) as MethodCodec<
@@ -300,96 +307,69 @@ const makeCompiler = (
         >
         methodCodecs.set(name, mc)
       }
-      cached = { constructorBindings, methodCodecs }
+      cached = { constructorCodecs, methodCodecs }
       return cached
     })
   })
 }
 
-const wireBindingsOf = (bs: ReadonlyArray<ParamBinding>) =>
-  bs.filter((b): b is Extract<ParamBinding, { kind: "wire" }> => b.kind === "wire")
-
-/** Encode a list of named bindings + an input record into a `DataValue.tuple`. */
-const encodeBindings = (
+/** Encode a list of named param codecs + an input record into a `schema-value-tree`. */
+const encodeParams = (
   context: string,
-  bindings: ReadonlyArray<ParamBinding>,
+  codecs: ReadonlyArray<ParamCodec>,
   input: Record<string, unknown>,
-): Effect.Effect<CoreTypes.DataValue, RemoteCallError> =>
+): Effect.Effect<SchemaValueTree, RemoteCallError> =>
   Effect.gen(function* () {
-    const elements: Array<CoreTypes.ElementValue> = []
-    for (const b of wireBindingsOf(bindings)) {
-      const ev = yield* Effect.mapError(
-        b.element.encode(input[b.name] as never),
+    const fields: Array<SchemaValue> = []
+    for (const c of codecs) {
+      const sv = yield* Effect.mapError(
+        Schema.encodeEffect(c.codec.codec as Schema.Codec<any, SchemaValue, never, never>)(
+          input[c.name],
+        ) as Effect.Effect<SchemaValue, unknown>,
         (e): RemoteCallError => ({
           _tag: "RemoteResponseError",
-          reason: `failed to encode ${context} '${b.name}': ${String(e)}`,
+          reason: `failed to encode ${context} '${c.name}': ${String(e)}`,
         }),
       )
-      elements.push(ev)
+      fields.push(sv)
     }
-    return { tag: "tuple", val: elements } as CoreTypes.DataValue
+    return schemaValueToWit(v.record(fields))
   })
 
-/** Encode the constructor's named-input record positionally to a Golem `DataValue`. */
+/** Encode the constructor's named-input record positionally to a `schema-value-tree`. */
 const encodeConstructor = (
   compiled: CompiledClient,
   input: Record<string, unknown>,
-): Effect.Effect<CoreTypes.DataValue, RemoteCallError> =>
-  encodeBindings("constructor argument", compiled.constructorBindings, input)
+): Effect.Effect<SchemaValueTree, RemoteCallError> =>
+  encodeParams("constructor argument", compiled.constructorCodecs, input)
 
-/** Encode a method's named-input record positionally to a Golem `DataValue`. */
+/** Encode a method's named-input record positionally to a `schema-value-tree`. */
 const encodeMethodInput = (
   mc: MethodCodec<MethodParams, Schema.Top, Schema.Top>,
   input: Record<string, unknown>,
-): Effect.Effect<CoreTypes.DataValue, RemoteCallError> => {
-  const mm = mc.bindings.find(
-    (b): b is Extract<ParamBinding, { kind: "multimodal" }> => b.kind === "multimodal",
-  )
-  if (mm !== undefined) {
-    return Effect.mapError(
-      mm.multimodal.encode(input[mm.name]),
-      (e): RemoteCallError => ({
-        _tag: "RemoteResponseError",
-        reason: `${mc.name}: failed to encode multimodal '${mm.name}': ${String(e)}`,
-      }),
-    )
-  }
-  return encodeBindings(`${mc.name} argument`, mc.bindings, input)
-}
+): Effect.Effect<SchemaValueTree, RemoteCallError> =>
+  encodeParams(`${mc.name} argument`, mc.inputCodecs, input)
 
-/** Decode a method's `DataValue` response into the success type. */
+/** Decode a method's optional `schema-value-tree` response into the success type. */
 const decodeMethodOutput = (
   mc: MethodCodec<MethodParams, Schema.Top, Schema.Top>,
-  output: CoreTypes.DataValue,
+  output: SchemaValueTree | undefined,
 ): Effect.Effect<unknown, RemoteCallError> =>
   Effect.gen(function* () {
-    if (output.tag !== "tuple") {
-      return yield* Effect.fail<RemoteCallError>({
-        _tag: "RemoteResponseError",
-        reason: `${mc.name}: expected tuple DataValue, got ${output.tag}`,
-      })
-    }
-    if (mc.outputElement === null) {
-      // Methods declared with `Schema.Void` success and NO typed error
-      // emit an empty tuple on the wire. Methods that DO declare a typed error
-      // always carry a 1-element `result<{}, E>` wrapper
-      if (output.val.length !== 0) {
-        return yield* Effect.fail<RemoteCallError>({
-          _tag: "RemoteResponseError",
-          reason: `${mc.name}: expected empty tuple, got ${output.val.length} elements`,
-        })
-      }
+    if (mc.output.tag === "unit") {
+      // Void, unfailable methods return `none` on the wire.
       return undefined
     }
-    if (output.val.length !== 1) {
+    if (output === undefined) {
       return yield* Effect.fail<RemoteCallError>({
         _tag: "RemoteResponseError",
-        reason: `${mc.name}: expected 1 element, got ${output.val.length}`,
+        reason: `${mc.name}: expected a return value, got none`,
       })
     }
-    const elem = output.val[0]!
     return yield* Effect.mapError(
-      mc.outputElement.decode(elem),
+      Schema.decodeEffect(mc.output.codec.codec as Schema.Codec<any, SchemaValue, never, never>)(
+        schemaValueFromWit(output),
+      ) as Effect.Effect<unknown, unknown>,
       (e): RemoteCallError => ({
         _tag: "RemoteResponseError",
         reason: `${mc.name}: failed to decode output: ${String(e)}`,
@@ -427,15 +407,15 @@ const decodeMethodOutput = (
 const asyncInvoke = (
   rpc: RpcConnection,
   methodName: string,
-  input: CoreTypes.DataValue,
-): Effect.Effect<CoreTypes.DataValue, RemoteCallError> =>
+  input: SchemaValueTree,
+): Effect.Effect<SchemaValueTree | undefined, RemoteCallError> =>
   Effect.acquireUseRelease(
     Effect.try({
       try: () => rpc.asyncInvokeAndAwait(methodName, input),
       catch: wrapHostThrow,
     }),
     (fut) =>
-      Effect.callback<CoreTypes.DataValue, RemoteCallError>((resume, signal) => {
+      Effect.callback<SchemaValueTree | undefined, RemoteCallError>((resume, signal) => {
         // Guard the setup phase against synchronous throws from
         // `fut.subscribe()` or `pollable.abortablePromise(...)` (a
         // misbehaving host could throw before the promise chain even
@@ -562,7 +542,7 @@ const buildRemoteAgent = (
 
 const constructRpc = (
   agentTypeName: string,
-  ctorValue: CoreTypes.DataValue,
+  ctorValue: SchemaValueTree,
   phantomId: CoreTypes.Uuid | undefined,
   agentConfig: ReadonlyArray<AgentCommon.TypedAgentConfigValue>,
 ): Effect.Effect<RpcConnection, RemoteCallError, RpcClient> =>
@@ -595,13 +575,13 @@ const parsePhantomId = (id: string): Effect.Effect<CoreTypes.Uuid, RemoteCallErr
  * @category constructors
  */
 export const clientFor = <
-  C extends MethodParams,
+  Id extends MethodParams,
   Methods extends Record<string, AnyMethodSpec>,
   M extends AgentCommon.AgentMode,
   F extends ConfigFields = never,
 >(
-  def: AgentMetadata<C, Methods, M, F>,
-): AgentClient<C, Methods, M, F> => {
+  def: AgentMetadata<Id, Methods, M, F>,
+): AgentClient<Id, Methods, M, F> => {
   const compile = makeCompiler(def as AgentMetadata<MethodParams, Record<string, AnyMethodSpec>>)
 
   /**
@@ -669,20 +649,20 @@ export const clientFor = <
   // `HostLive`. The cast at the return statement of `clientFor` is the
   // erasure boundary.
 
-  const get = (input: MethodInput<C>, opts?: GetOptions<F>) =>
+  const get = (input: MethodInput<Id>, opts?: GetOptions<F>) =>
     Effect.map(
       construct(input as Record<string, unknown>, undefined, opts),
       ({ rpc, compiled }) => buildRemoteAgent(rpc, compiled) as RemoteAgent<Methods>,
     )
 
-  const getPhantom = (input: MethodInput<C>, phantomId: string, opts?: GetOptions<F>) =>
+  const getPhantom = (input: MethodInput<Id>, phantomId: string, opts?: GetOptions<F>) =>
     Effect.gen(function* () {
       const uuid = yield* parsePhantomId(phantomId)
       const { rpc, compiled } = yield* construct(input as Record<string, unknown>, uuid, opts)
       return buildRemoteAgent(rpc, compiled) as RemoteAgent<Methods>
     })
 
-  const newPhantom = (input: MethodInput<C>, opts?: GetOptions<F>) =>
+  const newPhantom = (input: MethodInput<Id>, opts?: GetOptions<F>) =>
     Effect.gen(function* () {
       const dm = yield* DurabilityModeClient
       const uuid = yield* Effect.try({
@@ -698,7 +678,7 @@ export const clientFor = <
 
   const mode: AgentCommon.AgentMode = def.mode ?? "durable"
   if (mode === "ephemeral") {
-    return { getPhantom, newPhantom } as AgentClient<C, Methods, M, F>
+    return { getPhantom, newPhantom } as AgentClient<Id, Methods, M, F>
   }
-  return { get, getPhantom, newPhantom } as AgentClient<C, Methods, M, F>
+  return { get, getPhantom, newPhantom } as AgentClient<Id, Methods, M, F>
 }

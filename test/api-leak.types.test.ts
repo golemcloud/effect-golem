@@ -166,9 +166,9 @@ type AssertEqual<X, Y> =
 {
   defineAgent({
     name: "_LeakProbe",
-    constructorParams: { name: Schema.String },
+    id: { name: Schema.String },
     methods: {
-      probe: method({ params: {}, success: Schema.Number }),
+      probe: method({ input: {}, success: Schema.Number }),
     },
   }).implement(() =>
     Effect.succeed({

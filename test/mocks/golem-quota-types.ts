@@ -1,10 +1,15 @@
 /**
  * Runtime mock for `golem:quota/types@1.5.0` used by the test suite.
  *
- * The real host classes are provided by the WASM runtime; this mock
- * implements the full surface (`new QuotaToken(...)`, `reserve`,
- * `Reservation.commit`, `split`, `merge`, `toRecord`/`fromRecord`) so
- * the Effect wrappers can be exercised in node-vitest.
+ * The real host bindings are provided by the WASM runtime; this mock
+ * implements the NEW free-function surface (`newToken`, `reserve`,
+ * `split`, `merge`, and the static `Reservation.commit`) so the Effect
+ * wrappers can be exercised in node-vitest.
+ *
+ * `QuotaToken` and `Reservation` are opaque carriers the mock constructs;
+ * tokens carry just enough state (resource name, expected-use) for the
+ * event log and the trap conditions (`split` overflow, `merge` resource
+ * mismatch) the operational tests rely on.
  */
 
 export type EnvironmentId = { uuid: { highBits: bigint; lowBits: bigint } }
@@ -13,19 +18,6 @@ export type Datetime = { seconds: bigint; nanoseconds: number }
 export type FailedReservation = {
   estimatedWaitNanos?: bigint
 }
-
-export type QuotaTokenRecord = {
-  environmentId: EnvironmentId
-  resourceName: string
-  expectedUse: bigint
-  lastCredit: bigint
-  lastCreditAt: Datetime
-}
-
-const ZERO_ENV: EnvironmentId = { uuid: { highBits: 0n, lowBits: 0n } }
-const ZERO_TS: Datetime = { seconds: 0n, nanoseconds: 0 }
-
-const FROM_RECORD_BRAND: unique symbol = Symbol("from-record")
 
 /**
  * Test event log — appended to whenever the mock observes a host call.
@@ -87,6 +79,26 @@ export const __setCommitThrows = (error: unknown): void => {
   commitBehavior = { tag: "throw", error }
 }
 
+/**
+ * Opaque quota-token carrier. In the real host this is an
+ * `own<quota-token>` resource handle from `golem:core/types@2.0.0`; here it
+ * is a plain object holding the mutable state the trap conditions need.
+ */
+export class QuotaToken {
+  resourceName: string
+  expectedUse: bigint
+
+  constructor(resourceName: string, expectedUse: bigint) {
+    this.resourceName = resourceName
+    this.expectedUse = expectedUse
+  }
+}
+
+/**
+ * Opaque reservation carrier. The real host returns an
+ * `own<reservation>` resource; here it back-references its token (for
+ * resource-name event tagging) and the originally reserved amount.
+ */
 export class Reservation {
   /** @internal — surfaced for test assertions, not part of the real WIT shape. */
   readonly id: number
@@ -103,6 +115,7 @@ export class Reservation {
     this.token = token
   }
 
+  /** Mirrors the static host `Reservation.commit(reservation, used)`. */
   static commit(this_: Reservation, used: bigint): void {
     if (this_.consumed) {
       throw new Error(`mock: reservation ${this_.id} already consumed`)
@@ -122,89 +135,54 @@ export class Reservation {
   }
 }
 
-export class QuotaToken {
-  readonly resourceName: string
-  expectedUse: bigint
-  readonly environmentId: EnvironmentId
-  lastCredit: bigint
-  lastCreditAt: Datetime
+/** Mirrors the free function `newToken(resourceName, expectedUse)`. */
+export function newToken(resourceName: string, expectedUse: bigint): QuotaToken {
+  events.push({ tag: "construct", resourceName, expectedUse })
+  return new QuotaToken(resourceName, expectedUse)
+}
 
-  constructor(resourceName: string, expectedUse: bigint)
-  constructor(record: QuotaTokenRecord, _internal: typeof FROM_RECORD_BRAND)
-  constructor(a: string | QuotaTokenRecord, b?: bigint | typeof FROM_RECORD_BRAND) {
-    if (typeof a === "string" && typeof b === "bigint") {
-      this.resourceName = a
-      this.expectedUse = b
-      this.environmentId = ZERO_ENV
-      this.lastCredit = 0n
-      this.lastCreditAt = ZERO_TS
-      events.push({ tag: "construct", resourceName: a, expectedUse: b })
-    } else if (typeof a === "object" && b === FROM_RECORD_BRAND) {
-      this.resourceName = a.resourceName
-      this.expectedUse = a.expectedUse
-      this.environmentId = a.environmentId
-      this.lastCredit = a.lastCredit
-      this.lastCreditAt = a.lastCreditAt
-    } else {
-      throw new Error("mock: invalid QuotaToken constructor args")
-    }
+/** Mirrors the free function `reserve(token, amount)`. */
+export function reserve(token: QuotaToken, amount: bigint): Reservation {
+  if (reserveBehavior.tag === "fail") {
+    // The WIT binding throws the FailedReservation record directly.
+    throw reserveBehavior.failure as unknown
   }
+  if (reserveBehavior.tag === "throw") {
+    throw reserveBehavior.error
+  }
+  events.push({ tag: "reserve", resourceName: token.resourceName, amount })
+  return new Reservation(token, amount)
+}
 
-  reserve(amount: bigint): Reservation {
-    if (reserveBehavior.tag === "fail") {
-      // The WIT binding throws the FailedReservation record directly.
-      throw reserveBehavior.failure as unknown
-    }
-    if (reserveBehavior.tag === "throw") {
-      throw reserveBehavior.error
-    }
-    events.push({ tag: "reserve", resourceName: this.resourceName, amount })
-    return new Reservation(this, amount)
+/** Mirrors the free function `split(token, childExpectedUse)`. */
+export function split(token: QuotaToken, childExpectedUse: bigint): QuotaToken {
+  if (splitBehavior.tag === "throw") {
+    const e = splitBehavior.error
+    splitBehavior = { tag: "ok" }
+    throw e
   }
+  if (childExpectedUse > token.expectedUse) {
+    throw new Error("mock: child-expected-use exceeds parent expected-use")
+  }
+  events.push({ tag: "split", resourceName: token.resourceName, childExpectedUse })
+  token.expectedUse -= childExpectedUse
+  return new QuotaToken(token.resourceName, childExpectedUse)
+}
 
-  split(childExpectedUse: bigint): QuotaToken {
-    if (splitBehavior.tag === "throw") {
-      const e = splitBehavior.error
-      splitBehavior = { tag: "ok" }
-      throw e
-    }
-    if (childExpectedUse > this.expectedUse) {
-      throw new Error("mock: child-expected-use exceeds parent expected-use")
-    }
-    events.push({ tag: "split", resourceName: this.resourceName, childExpectedUse })
-    this.expectedUse -= childExpectedUse
-    return new QuotaToken(this.resourceName, childExpectedUse)
+/** Mirrors the free function `merge(token, other)`. */
+export function merge(token: QuotaToken, other: QuotaToken): void {
+  if (mergeBehavior.tag === "throw") {
+    const e = mergeBehavior.error
+    mergeBehavior = { tag: "ok" }
+    throw e
   }
-
-  merge(other: QuotaToken): void {
-    if (mergeBehavior.tag === "throw") {
-      const e = mergeBehavior.error
-      mergeBehavior = { tag: "ok" }
-      throw e
-    }
-    if (other.resourceName !== this.resourceName) {
-      throw new Error("mock: cannot merge tokens of different resources")
-    }
-    events.push({
-      tag: "merge",
-      resourceName: this.resourceName,
-      otherResource: other.resourceName,
-    })
-    this.expectedUse += other.expectedUse
-    this.lastCredit += other.lastCredit
+  if (other.resourceName !== token.resourceName) {
+    throw new Error("mock: cannot merge tokens of different resources")
   }
-
-  toRecord(): QuotaTokenRecord {
-    return {
-      environmentId: this.environmentId,
-      resourceName: this.resourceName,
-      expectedUse: this.expectedUse,
-      lastCredit: this.lastCredit,
-      lastCreditAt: this.lastCreditAt,
-    }
-  }
-
-  static fromRecord(serialized: QuotaTokenRecord): QuotaToken {
-    return new QuotaToken(serialized, FROM_RECORD_BRAND)
-  }
+  events.push({
+    tag: "merge",
+    resourceName: token.resourceName,
+    otherResource: other.resourceName,
+  })
+  token.expectedUse += other.expectedUse
 }

@@ -23,10 +23,10 @@
  * @internal — not re-exported from `src/index.ts`.
  */
 import { Context, Effect, Layer } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as AgentHost from "golem:agent/host@1.5.0"
-import { WasmRpc } from "golem:agent/host@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
+import type * as AgentHost from "golem:agent/host@2.0.0"
+import { WasmRpc } from "golem:agent/host@2.0.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
 
 /**
  * Typed wrapper for synchronous host-side traps that escape the raw
@@ -52,7 +52,9 @@ export interface RpcInvocationHandle {
   /** Mirrors `FutureInvokeResult.subscribe`. May throw synchronously. */
   readonly subscribe: () => AgentHost.Pollable
   /** Mirrors `FutureInvokeResult.get`. */
-  readonly get: () => AgentHost.Result<CoreTypes.DataValue, AgentHost.RpcError> | undefined
+  readonly get: () =>
+    | AgentHost.Result<CoreTypes.SchemaValueTree | undefined, AgentHost.RpcError>
+    | undefined
   /** Mirrors `FutureInvokeResult.cancel`. Best-effort; idempotent post-completion. */
   readonly cancel: () => void
 }
@@ -74,19 +76,22 @@ export interface RpcCancellationToken {
  */
 export interface RpcConnection {
   /** Mirrors `WasmRpc.invokeAndAwait`. Synchronous; throws an `RpcError` on failure. */
-  readonly invokeAndAwait: (methodName: string, input: CoreTypes.DataValue) => CoreTypes.DataValue
+  readonly invokeAndAwait: (
+    methodName: string,
+    input: CoreTypes.SchemaValueTree,
+  ) => CoreTypes.SchemaValueTree | undefined
   /** Mirrors `WasmRpc.invoke` (fire-and-forget). Throws synchronously on host trap. */
-  readonly invoke: (methodName: string, input: CoreTypes.DataValue) => void
+  readonly invoke: (methodName: string, input: CoreTypes.SchemaValueTree) => void
   /** Mirrors `WasmRpc.asyncInvokeAndAwait`. Returns a future handle. */
   readonly asyncInvokeAndAwait: (
     methodName: string,
-    input: CoreTypes.DataValue,
+    input: CoreTypes.SchemaValueTree,
   ) => RpcInvocationHandle
   /** Mirrors `WasmRpc.scheduleCancelableInvocation`. */
   readonly scheduleCancelableInvocation: (
     scheduledAt: AgentHost.Datetime,
     methodName: string,
-    input: CoreTypes.DataValue,
+    input: CoreTypes.SchemaValueTree,
   ) => RpcCancellationToken
 }
 
@@ -105,7 +110,7 @@ export interface RpcClientShape {
    */
   readonly connect: (
     agentTypeName: string,
-    constructorValue: CoreTypes.DataValue,
+    constructorValue: CoreTypes.SchemaValueTree,
     phantomId: CoreTypes.Uuid | undefined,
     agentConfig: ReadonlyArray<AgentCommon.TypedAgentConfigValue>,
   ) => Effect.Effect<RpcConnection, RpcHostError>

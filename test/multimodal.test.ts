@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import { compileMethodSpec, invokeDataValue, method } from "../src/Method.js"
+import { compileMethodSpec, method } from "../src/Method.js"
 import { multimodal, multimodalTextImage } from "../src/Multimodal.js"
 import {
   UnstructuredBinary,
@@ -8,6 +8,7 @@ import {
   type BinaryReferenceValue,
   type TextReferenceValue,
 } from "../src/Unstructured.js"
+import type { SchemaValue } from "../src/internal/schema-model/model.js"
 
 const Meta = Schema.Struct({ prompt: Schema.String })
 const Content = multimodal({
@@ -16,73 +17,72 @@ const Content = multimodal({
   meta: Meta,
 } as const)
 
+const encode = (codec: any, value: unknown) =>
+  Schema.encodeEffect(codec)(value) as Effect.Effect<SchemaValue, unknown, never>
+const decode = (codec: any, value: SchemaValue) =>
+  Schema.decodeEffect(codec)(value) as Effect.Effect<unknown, unknown, never>
+
 describe("multimodal()", () => {
-  it.effect("emits a multimodal DataSchema with one entry per case", () =>
+  it.effect("emits a list<variant> schema with the multimodal role and one case per member", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
+        input: { content: Content },
         success: Schema.String,
       })
       const mc = yield* compileMethodSpec("send", m)
-      expect(mc.inputSchema.tag).toBe("multimodal")
-      if (mc.inputSchema.tag !== "multimodal") throw new Error()
-      expect(mc.inputSchema.val.map(([k]) => k)).toEqual(["text", "image", "meta"])
-      expect(mc.inputSchema.val[0]![1].tag).toBe("unstructured-text")
-      expect(mc.inputSchema.val[1]![1].tag).toBe("unstructured-binary")
-      expect(mc.inputSchema.val[2]![1].tag).toBe("component-model")
+      expect(mc.inputCodecs.length).toBe(1)
+      const root = mc.inputCodecs[0]!.codec.graph.root
+      expect(root.body.tag).toBe("list")
+      expect(root.metadata.role?.tag).toBe("multimodal")
+      if (root.body.tag !== "list") throw new Error()
+      const variant = root.body.element
+      expect(variant.body.tag).toBe("variant")
+      if (variant.body.tag !== "variant") throw new Error()
+      expect(variant.body.cases.map((c) => c.name)).toEqual(["text", "image", "meta"])
+      // The text/image cases carry their unstructured variant roots; meta is a record.
+      expect(variant.body.cases[0]!.payload!.body.tag).toBe("variant")
+      expect(variant.body.cases[0]!.payload!.metadata.role?.tag).toBe("unstructured-text")
+      expect(variant.body.cases[1]!.payload!.metadata.role?.tag).toBe("unstructured-binary")
+      expect(variant.body.cases[2]!.payload!.body.tag).toBe("record")
     }),
   )
 
-  it.effect("decodes a multimodal DataValue and re-encodes the result", () =>
+  it.effect("round-trips a multimodal value through the compiled codec", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content },
+        input: { content: Content },
         success: Schema.Number,
       })
       const mc = yield* compileMethodSpec("count", m)
+      const codec = mc.inputCodecs[0]!.codec.codec
 
       type Item =
         | { _tag: "text"; value: TextReferenceValue }
         | { _tag: "image"; value: BinaryReferenceValue }
         | { _tag: "meta"; value: { prompt: string } }
 
-      const handler = ({ content }: { content: ReadonlyArray<Item> }) =>
-        Effect.succeed(content.length)
-
-      // Build the input via the multimodal compiled encoder so we don't
-      // hand-roll the WitValue for the meta case.
-      const compiled = yield* Content.compile()
-      const dv = yield* compiled.encode([
-        {
-          _tag: "text",
-          value: { _tag: "inline", val: { data: "hi" } } as TextReferenceValue,
-        },
-        {
-          _tag: "image",
-          value: { _tag: "url", val: "https://x/y.png" } as BinaryReferenceValue,
-        },
+      const input: ReadonlyArray<Item> = [
+        { _tag: "text", value: { _tag: "inline", val: "hi" } },
+        { _tag: "image", value: { _tag: "url", val: "https://x/y.png" } },
         { _tag: "meta", value: { prompt: "p" } },
-      ] as any)
-      expect(dv.tag).toBe("multimodal")
+      ]
 
-      const out = yield* invokeDataValue(mc, handler as any, dv) as Effect.Effect<
-        any,
-        unknown,
-        never
-      >
-      if (out.tag !== "tuple") throw new Error()
-      const elem = out.val[0]!
-      if (elem.tag !== "component-model") throw new Error()
-      // Decode the success value back through the outputElement codec.
-      const decoded = yield* mc.outputElement!.decode(elem)
-      expect(decoded).toBe(3)
+      const sv = yield* encode(codec, input)
+      expect(sv.tag).toBe("list")
+      if (sv.tag !== "list") throw new Error()
+      expect(sv.elements.length).toBe(3)
+      // Each element is a v.variant(caseIndex, payload).
+      expect(sv.elements.map((e) => (e as { caseIndex: number }).caseIndex)).toEqual([0, 1, 2])
+
+      const back = yield* decode(codec, sv)
+      expect(back).toEqual(input)
     }),
   )
 
   it.effect("rejects non-sole multimodal parameters", () =>
     Effect.gen(function* () {
       const m = method({
-        params: { content: Content, extra: Schema.String },
+        input: { content: Content, extra: Schema.String },
         success: Schema.Void,
       })
       const exit = yield* Effect.exit(compileMethodSpec("bad", m))
@@ -93,10 +93,14 @@ describe("multimodal()", () => {
   it.effect("multimodalTextImage builds a two-case multimodal", () =>
     Effect.gen(function* () {
       const C = multimodalTextImage()
-      const compiled = yield* C.compile()
-      expect(compiled.dataSchema.tag).toBe("multimodal")
-      if (compiled.dataSchema.tag !== "multimodal") throw new Error()
-      expect(compiled.dataSchema.val.map(([k]) => k)).toEqual(["text", "image"])
+      const wc = yield* C.compile()
+      const root = wc.graph.root
+      expect(root.body.tag).toBe("list")
+      expect(root.metadata.role?.tag).toBe("multimodal")
+      if (root.body.tag !== "list") throw new Error()
+      const variant = root.body.element
+      if (variant.body.tag !== "variant") throw new Error()
+      expect(variant.body.cases.map((c) => c.name)).toEqual(["text", "image"])
     }),
   )
 })

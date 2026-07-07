@@ -35,16 +35,16 @@
  * })
  * ```
  *
- * The Schema codec for `QuotaToken` (and `QuotaTokenRecord`) keeps
- * working unchanged — passing a token across an RPC boundary continues
- * to use `toRecord` / `fromRecord` under the hood.
+ * The Schema codec for `QuotaToken` bridges the host quota-token to the
+ * schema-model `quota-token` capability node, so passing a token across an
+ * RPC boundary carries it as an opaque, affine owned handle.
  *
  * @since 1.5.0
  */
-import { Cause, Effect, Exit, Schema, SchemaGetter, Scope } from "effect"
+import { Cause, Effect, Exit, Schema, Scope } from "effect"
 import * as QuotaHost from "golem:quota/types@1.5.0"
 import { QuotaClient } from "./host/QuotaClient.js"
-import { Int64, Uint32, Uint64 } from "./WitTypes.js"
+import { witQuotaTokenAnnotationKey } from "./WitTypes.js"
 
 // ---------------------------------------------------------------------------
 // Re-exported runtime handle types
@@ -170,86 +170,32 @@ export class QuotaHostError {
 }
 
 // ---------------------------------------------------------------------------
-// Schema for the wire (RPC) shape — preserved for backward compatibility.
+// Schema codec — bridges the host quota-token to the schema-model
+// `quota-token` capability node.
 // ---------------------------------------------------------------------------
 
 /**
- * Schema for `golem:core/types@1.5.0`.Uuid — a 128-bit value carried as
- * two 64-bit halves.
- *
- * @since 1.5.0
- * @category codecs
- */
-export const Uuid = Schema.Struct({
-  highBits: Uint64,
-  lowBits: Uint64,
-})
-
-/**
- * Schema for `golem:api/host@1.5.0`.EnvironmentId.
- *
- * @since 1.5.0
- * @category codecs
- */
-export const EnvironmentId = Schema.Struct({
-  uuid: Uuid,
-})
-
-/**
- * Schema for `wasi:clocks/wall-clock@0.2.3`.Datetime.
- *
- * @since 1.5.0
- * @category codecs
- */
-export const Datetime = Schema.Struct({
-  seconds: Int64,
-  nanoseconds: Uint32,
-})
-
-/**
- * Schema for the wire shape of a `QuotaToken` — the record returned by
- * `QuotaToken.toRecord()` and accepted by `QuotaToken.fromRecord()`.
- *
- * @since 1.5.0
- * @category codecs
- */
-export const QuotaTokenRecord = Schema.Struct({
-  environmentId: EnvironmentId,
-  resourceName: Schema.String,
-  expectedUse: Uint64,
-  lastCredit: Int64,
-  lastCreditAt: Datetime,
-})
-
-/**
- * Schema for the host `QuotaToken` class. The decoded `Type` is the
- * runtime `QuotaToken` instance; the `Encoded` form is `QuotaTokenRecord`,
- * which the codec then maps onto the corresponding WIT record.
+ * Schema for the host `QuotaToken`. A quota-token is an opaque, affine
+ * capability handle (`own<quota-token>` in the value tree), not a
+ * record-serializable struct. The decoded/encoded `Type` is the runtime host
+ * `QuotaToken` (a raw owned resource).
  *
  * **Details**
  *
- * Bridging is done by `QuotaToken.fromRecord` / `QuotaToken.toRecord` —
- * the official host class invariants are preserved end-to-end.
+ * The schema is annotated with {@link witQuotaTokenAnnotationKey}; the
+ * `toWitCodec` walker recognises that marker and compiles it to the
+ * schema-model `quota-token` capability node (graph root
+ * `t.quotaToken({})`). Encoding lowers the host handle into
+ * `v.quotaToken(GuestQuotaTokenHandle.fromRaw(...))`; decoding moves the owned
+ * handle back out via `handle.take()`. A token can therefore flow as an agent
+ * input / output, carried by ownership through a WIT `schema-value-tree`.
  *
  * @since 1.5.0
  * @category codecs
  */
-export const QuotaToken: Schema.Codec<
-  QuotaHost.QuotaToken,
-  typeof QuotaTokenRecord.Encoded,
-  never,
-  never
-> = QuotaTokenRecord.pipe(
-  Schema.decodeTo(
-    Schema.declare((u): u is QuotaHost.QuotaToken => u instanceof QuotaHost.QuotaToken),
-    {
-      decode: SchemaGetter.transform((rec: typeof QuotaTokenRecord.Type) =>
-        QuotaHost.QuotaToken.fromRecord(rec),
-      ),
-      encode: SchemaGetter.transform((tok: QuotaHost.QuotaToken) => tok.toRecord()),
-    },
-  ),
-)
+export const QuotaToken: Schema.Schema<QuotaHost.QuotaToken> = Schema.declare(
+  (u): u is QuotaHost.QuotaToken => u !== null && typeof u === "object",
+).pipe(Schema.annotate({ [witQuotaTokenAnnotationKey]: true }))
 
 // ---------------------------------------------------------------------------
 // Effect-typed host calls
@@ -475,7 +421,4 @@ export const withReservation = <A, E, R>(
  * @since 1.5.0
  * @category re-exports
  */
-export type {
-  FailedReservation,
-  QuotaTokenRecord as RawQuotaTokenRecord,
-} from "golem:quota/types@1.5.0"
+export type { FailedReservation } from "golem:quota/types@1.5.0"

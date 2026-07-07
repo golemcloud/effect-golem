@@ -19,10 +19,10 @@
  *
  * defineAgent({
  *   name: "Users",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   methods: {
- *     put: method({ params: { id: Schema.String, name: Schema.String }, success: Schema.Void }),
- *     get: method({ params: { id: Schema.String }, success: Schema.Option(User) }),
+ *     put: method({ input: { id: Schema.String, name: Schema.String }, success: Schema.Void }),
+ *     get: method({ input: { id: Schema.String }, success: Schema.Option(User) }),
  *   },
  *   impl: () =>
  *     Effect.gen(function* () {
@@ -40,6 +40,7 @@
  */
 
 import { Effect, Option, Scope, Schema } from "effect"
+import { strictTextDecoder } from "./internal/textDecoder.js"
 import { KeyValueClient, type HostBucket } from "./host/KeyValueClient.js"
 
 // ---------------------------------------------------------------------------
@@ -253,7 +254,7 @@ export interface SchemaBucket<S extends Schema.Top> {
 // surfaces as the SDK-internal {@link KeyValueDecodeError}.
 
 const encoder = new TextEncoder()
-const strictDecoder = new TextDecoder("utf-8", { fatal: true })
+const strictDecoder = strictTextDecoder()
 
 const decodeUtf8 = (bytes: Uint8Array): Effect.Effect<string, KeyValueDecodeError> =>
   Effect.try({

@@ -9,7 +9,7 @@
 #     in the parent `effect-golem` repo and exposed via the `effect-golem`
 #     npm dependency under node_modules/effect-golem/wasm/agent_guest.wasm.
 
-manifestVersion: 1.5.0
+manifestVersion: 1.6.0
 
 app: effect-golem-integration-test
 

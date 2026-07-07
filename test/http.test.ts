@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "@effect/vitest"
 import { Cause, Effect, Option, Schema } from "effect"
 import { defineAgent, __resetAgents } from "../src/Agent.js"
 import { method } from "../src/Method.js"
-import { guest } from "../src/internal/guest.js"
+import { golemAgent200Guest as guest } from "../src/internal/guest.js"
 import {
   agentType,
   agentVersion,
@@ -417,17 +417,17 @@ describe("Http defineAgent integration", () => {
         name: "Counter1",
         description: "test counter",
         promptHint: "use this counter",
-        constructorParams: { name: Schema.String },
+        id: { name: Schema.String },
         http: mount("/counters/{name}", { cors: ["*"], auth: true }),
         methods: {
           value: method({
-            params: {},
+            input: {},
             success: Schema.Number,
             description: "current value",
             http: [get("/value")],
           }),
           add: method({
-            params: { by: Schema.Number },
+            input: { by: Schema.Number },
             success: Schema.Number,
             http: [post("/add"), get("/add?by={by}")],
           }),
@@ -470,9 +470,9 @@ describe("Http defineAgent integration", () => {
     Effect.gen(function* () {
       defineAgent({
         name: "NoHttp",
-        constructorParams: {},
+        id: {},
         methods: {
-          ping: method({ params: {}, success: Schema.Void }),
+          ping: method({ input: {}, success: Schema.Void }),
         },
       }).implement(() => Effect.succeed({ ping: () => Effect.void }))
       const types = yield* Effect.promise(() => guest.discoverAgentTypes())
@@ -491,34 +491,34 @@ describe("Http defineAgent integration", () => {
         // fires; the runtime check below remains as defence-in-depth.
         defineAgent({
           name: "MissingMount",
-          constructorParams: {},
+          id: {},
           methods: {
-            value: method({ params: {}, success: Schema.Number, http: [get("/v")] }),
+            value: method({ input: {}, success: Schema.Number, http: [get("/v")] }),
           },
         }).implement(() => Effect.succeed({ value: () => Effect.succeed(0) })),
       /declares HTTP endpoints but no mount/,
     )
   })
 
-  it("rejects a mount path-var that does not match a constructor param", async () => {
+  it("rejects a mount path-var that does not match a id field", async () => {
     await expectRouteError(
       () =>
         defineAgent({
           name: "BadMountVar",
-          constructorParams: { name: Schema.String },
+          id: { name: Schema.String },
           http: mount("/x/{nonExistent}") as never,
           methods: {},
         }).implement(() => Effect.succeed({})),
-      /does not match any constructor parameter/,
+      /does not match any id field/,
     )
   })
 
-  it("rejects when a constructor param is not covered by the mount path", async () => {
+  it("rejects when a id field is not covered by the mount path", async () => {
     await expectRouteError(
       () =>
         defineAgent({
           name: "UncoveredCtor",
-          constructorParams: { name: Schema.String, region: Schema.String },
+          id: { name: Schema.String, region: Schema.String },
           http: mount("/x/{name}") as never,
           methods: {},
         }).implement(() => Effect.succeed({})),
@@ -526,28 +526,28 @@ describe("Http defineAgent integration", () => {
     )
   })
 
-  it("rejects a non-string-bindable constructor param bound to a mount path variable", async () => {
+  it("rejects a non-string-bindable id field bound to a mount path variable", async () => {
     await expectRouteError(
       () =>
         defineAgent({
           name: "StructCtor",
-          constructorParams: {
+          id: {
             name: Schema.String,
             region: Schema.Struct({ code: Schema.String }),
           },
           http: mount("/x/{name}/{region}") as never,
           methods: {},
         }).implement(() => Effect.succeed({})),
-      /constructor parameter 'region' has a schema that is not bindable from a path variable/,
+      /id field 'region' has a schema that is not bindable from a path variable/,
     )
   })
 
-  it("accepts a branded string constructor param bound to a mount path variable", () => {
+  it("accepts a branded string id field bound to a mount path variable", () => {
     const Region = Schema.String.pipe(Schema.brand("Region"))
     expect(() =>
       defineAgent({
         name: "BrandedCtor",
-        constructorParams: { name: Schema.String, region: Region },
+        id: { name: Schema.String, region: Region },
         http: mount("/x/{name}/{region}"),
         methods: {},
       }).implement(() => Effect.succeed({})),
@@ -559,11 +559,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "BadEndpointVar",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             getOne: method({
-              params: {} as Record<string, never>,
+              input: {} as Record<string, never>,
               success: Schema.String,
               http: [get("/items/{nope}")] as never,
             }),
@@ -582,11 +582,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "DualBind",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { id: Schema.String },
+              input: { id: Schema.String },
               success: Schema.String,
               http: [get("/items/{id}?id={id}")] as never,
             }),
@@ -604,11 +604,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "DupHeaders",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { a: Schema.String, b: Schema.String },
+              input: { a: Schema.String, b: Schema.String },
               success: Schema.String,
               http: [get("/items", { headers: { "X-Foo": "a", "x-foo": "b" } as const }) as never],
             }),
@@ -623,11 +623,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "GetWithBody",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { payload: Schema.String },
+              input: { payload: Schema.String },
               success: Schema.String,
               // @ts-expect-error — bodyless `Http.get(...)` cannot have
               // an unbound `payload` param. We silence the static error
@@ -647,11 +647,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "BadBindShape",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { obj: Schema.Struct({ a: Schema.String }) },
+              input: { obj: Schema.Struct({ a: Schema.String }) },
               success: Schema.String,
               http: [post("/items/{obj}")],
             }),
@@ -668,11 +668,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "UnstructuredBind",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { text: UnstructuredText() },
+              input: { text: UnstructuredText() },
               success: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // ElementSpec params from path bindings; the runtime
@@ -690,11 +690,11 @@ describe("Http defineAgent integration", () => {
       () =>
         defineAgent({
           name: "MultimodalBind",
-          constructorParams: {},
+          id: {},
           http: mount("/x"),
           methods: {
             op: method({
-              params: { mm: multimodal({ chunk: UnstructuredText() }) },
+              input: { mm: multimodal({ chunk: UnstructuredText() }) },
               success: Schema.String,
               // @ts-expect-error — the type-level pre-filter rejects
               // Multimodal params from path bindings; the runtime
@@ -703,7 +703,11 @@ describe("Http defineAgent integration", () => {
             }),
           },
         }).implement(() => Effect.succeed({ op: () => Effect.succeed("") })),
-      /multimodal\/unstructured/,
+      // On the new schema model a multimodal parameter is rejected during
+      // method compilation ("multimodal parameters are not yet supported")
+      // before the HTTP path-binding validator runs; either rejection
+      // expresses the same intent — a multimodal param cannot be path-bound.
+      /multimodal\/unstructured|multimodal parameters are not yet supported/,
     )
   })
 
@@ -711,11 +715,11 @@ describe("Http defineAgent integration", () => {
     Effect.gen(function* () {
       defineAgent({
         name: "GoodBindings",
-        constructorParams: { tenant: Schema.String },
+        id: { tenant: Schema.String },
         http: mount("/api/{tenant}"),
         methods: {
           find: method({
-            params: { id: Schema.String, q: Schema.String, traceId: Schema.String },
+            input: { id: Schema.String, q: Schema.String, traceId: Schema.String },
             success: Schema.String,
             http: [get("/items/{id}?q={q}", { headers: { "X-Trace": "traceId" } as const })],
           }),
@@ -774,7 +778,7 @@ describe("Http pipeable combinators — endpoints", () => {
     // when wired into a method. This exercises the type-level union
     // widening in `withHeader` / `withHeaders`.
     method({
-      params: {
+      input: {
         id: Schema.String,
         traceId: Schema.String,
         idempotencyKey: Schema.String,
@@ -817,11 +821,11 @@ describe("Http pipeable combinators — endpoints", () => {
     Effect.gen(function* () {
       defineAgent({
         name: "PipedEndpoints",
-        constructorParams: { tenant: Schema.String },
+        id: { tenant: Schema.String },
         http: mount("/api/{tenant}"),
         methods: {
           find: method({
-            params: { id: Schema.String, traceId: Schema.String },
+            input: { id: Schema.String, traceId: Schema.String },
             success: Schema.String,
             http: [get("/items/{id}").pipe(withHeader("X-Trace", "traceId"), withAuth(true))],
           }),
@@ -892,12 +896,12 @@ describe("Http pipeable combinators — mounts", () => {
     expect(compileMount(piped)).toEqual(compileMount(literal))
   })
 
-  it("pipeable webhook-suffix path variables are still validated against constructor params", async () => {
+  it("pipeable webhook-suffix path variables are still validated against id field", async () => {
     await expectRouteError(
       () =>
         defineAgent({
           name: "PipedBadWebhook",
-          constructorParams: { tenant: Schema.String },
+          id: { tenant: Schema.String },
           // @ts-expect-error — `WebhookVarsValid` also catches this at
           // compile time. This test exercises the runtime
           // defence-in-depth path; the cast bypasses the static check
@@ -913,11 +917,11 @@ describe("Http pipeable combinators — mounts", () => {
     Effect.gen(function* () {
       defineAgent({
         name: "PipedMount",
-        constructorParams: { tenant: Schema.String },
+        id: { tenant: Schema.String },
         http: mount("/api/{tenant}").pipe(withAuth(true), withCors("https://x.com")),
         methods: {
           find: method({
-            params: {},
+            input: {},
             success: Schema.String,
             http: [get("/items")],
           }),

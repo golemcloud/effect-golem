@@ -9,12 +9,30 @@
  */
 
 import { Context, Effect, Redacted, Schema, SchemaAST } from "effect"
-import type * as AgentCommon from "golem:agent/common@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
+import { reveal } from "golem:secrets/reveal@0.1.0"
 import { ConfigClient } from "./host/ConfigClient.js"
 import { toWitCodec, UnsupportedSchemaError, type WitCodec } from "./WitCodec.js"
+import {
+  schemaGraphToWit,
+  schemaValueFromWit,
+  t,
+  typedSchemaValueToWit,
+  type SchemaGraph,
+  type SchemaValue,
+} from "./internal/schema-model/index.js"
 
-type WitValue = CoreTypes.WitValue
+/**
+ * A config leaf's declaration in its "raw" form: the value-type is carried as a
+ * self-contained {@link SchemaGraph} and only flattened into a `type-node-index`
+ * when `agent.ts` assembles the agent's shared `schema-graph` pool.
+ */
+export interface ConfigDeclaration {
+  readonly source: AgentCommon.AgentConfigSource
+  readonly path: ReadonlyArray<string>
+  readonly graph: SchemaGraph
+}
 
 /**
  * A typed config-fetching failure surfaced through the {@link ConfigError}
@@ -111,7 +129,7 @@ interface ConfigLeaf {
  * @category models
  */
 export interface CompiledConfig {
-  readonly declarations: ReadonlyArray<AgentCommon.AgentConfigDeclaration>
+  readonly declarations: ReadonlyArray<ConfigDeclaration>
   readonly leaves: ReadonlyArray<ConfigLeaf>
   /** Lookup by `path.join("/")` for runtime override encoding/validation. */
   readonly leavesByPath: ReadonlyMap<string, ConfigLeaf>
@@ -190,7 +208,15 @@ export const compileConfig = (
             )
           }
           const inner = Schema.make<Schema.Top>(innerAst as Schema.Top["ast"])
-          const witCodec = (yield* toWitCodec(inner)) as WitCodec<Schema.Top>
+          const innerCodec = (yield* toWitCodec(inner)) as WitCodec<Schema.Top>
+          // The agent registry requires a secret-typed config field to declare
+          // its value type as `secret<plaintext>` (a capability node), not the
+          // bare plaintext. Wrap the inner type in a `secret` schema node; the
+          // inner codec still drives plaintext encode/decode of the revealed value.
+          const witCodec: WitCodec<Schema.Top> = {
+            ...innerCodec,
+            graph: { ...innerCodec.graph, root: t.secret(innerCodec.graph.root) },
+          }
           leaves.push({ source: "secret", path, witCodec })
           return
         }
@@ -239,10 +265,10 @@ export const compileConfig = (
       seenPaths.add(key)
     }
 
-    const declarations: Array<AgentCommon.AgentConfigDeclaration> = leaves.map((leaf) => ({
+    const declarations: Array<ConfigDeclaration> = leaves.map((leaf) => ({
       source: leaf.source,
       path: [...leaf.path],
-      valueType: leaf.witCodec.witType,
+      graph: leaf.witCodec.graph,
     }))
     const leavesByPath = new Map<string, ConfigLeaf>(
       leaves.map((leaf) => [leaf.path.join("/"), leaf] as const),
@@ -294,13 +320,39 @@ export const compileConfig = (
         for (const leaf of leaves) {
           const fetch: Effect.Effect<unknown, ConfigError> = Effect.gen(function* () {
             const wv = yield* Effect.try({
-              try: () => cfg.getConfigValue(leaf.path, leaf.witCodec.witType),
+              try: () => cfg.getConfigValue(leaf.path, schemaGraphToWit(leaf.witCodec.graph)),
+              catch: (cause) => new ConfigError(leaf.path, { _tag: "HostTrap", cause }),
+            })
+            // A secret leaf's declared value type is `secret<inner>`: the host
+            // returns an opaque secret handle, not the plaintext. Reveal it
+            // (capability-gated via `golem:secrets/reveal`) against the inner-type
+            // graph to obtain the inner value tree, which the inner codec decodes.
+            // Local leaves decode the returned value tree directly.
+            const valueTree = yield* Effect.try({
+              try: () => {
+                if (leaf.source !== "secret") return wv
+                const sv = schemaValueFromWit(wv) as { tag: string; handle?: any }
+                if (sv.tag !== "secret" || sv.handle === undefined) {
+                  throw new Error(
+                    `expected a secret config value at '${leaf.path.join(".")}', got '${sv.tag}'`,
+                  )
+                }
+                const innerRoot = (leaf.witCodec.graph.root as any).body.inner
+                const innerGraph: SchemaGraph = { ...leaf.witCodec.graph, root: innerRoot }
+                const revealed: SchemaValueTree | undefined = sv.handle.withHandle(
+                  (raw: any) => reveal(raw, schemaGraphToWit(innerGraph)),
+                )
+                if (revealed === undefined) {
+                  throw new Error(`secret handle already consumed at '${leaf.path.join(".")}'`)
+                }
+                return revealed
+              },
               catch: (cause) => new ConfigError(leaf.path, { _tag: "HostTrap", cause }),
             })
             const decoded = yield* Effect.mapError(
               Schema.decodeEffect(
-                leaf.witCodec.codec as Schema.Codec<unknown, WitValue, never, never>,
-              )(wv) as Effect.Effect<unknown, Schema.SchemaError>,
+                leaf.witCodec.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+              )(schemaValueFromWit(valueTree)) as Effect.Effect<unknown, Schema.SchemaError>,
               (cause) =>
                 new ConfigError(leaf.path, {
                   _tag: "DecodeFailure",
@@ -522,12 +574,12 @@ export const encodeOverrides = (
           )
         }
 
-        const wv = yield* Schema.encodeEffect(
-          leaf.witCodec.codec as Schema.Codec<unknown, WitValue, never, never>,
-        )(value) as Effect.Effect<WitValue, Schema.SchemaError>
+        const sv = yield* Schema.encodeEffect(
+          leaf.witCodec.codec as Schema.Codec<unknown, SchemaValue, never, never>,
+        )(value) as Effect.Effect<SchemaValue, Schema.SchemaError>
         out.push({
           path: [...leaf.path],
-          value: { value: wv, typ: leaf.witCodec.witType },
+          value: typedSchemaValueToWit({ graph: leaf.witCodec.graph, value: sv }),
         })
       })
 

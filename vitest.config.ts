@@ -15,6 +15,13 @@ const golemAliases = [
   { find: "golem:agent/host@1.5.0", replacement: resolve(mockDir, "golem-agent-host.ts") },
   { find: "golem:agent/common@1.5.0", replacement: resolve(mockDir, "golem-agent-common.ts") },
   { find: "golem:core/types@1.5.0", replacement: resolve(mockDir, "golem-core-types.ts") },
+  // The migrated SDK imports the new @2.0.0 agent/core interfaces (value imports
+  // at runtime); alias them to the same hand-written mocks.
+  { find: "golem:agent/host@2.0.0", replacement: resolve(mockDir, "golem-agent-host.ts") },
+  { find: "golem:agent/common@2.0.0", replacement: resolve(mockDir, "golem-agent-common.ts") },
+  { find: "golem:core/types@2.0.0", replacement: resolve(mockDir, "golem-core-types.ts") },
+  { find: "golem:secrets/types@0.1.0", replacement: resolve(mockDir, "golem-secrets-types.ts") },
+  { find: "golem:secrets/reveal@0.1.0", replacement: resolve(mockDir, "golem-secrets-reveal.ts") },
   { find: "golem:api/host@1.5.0", replacement: resolve(mockDir, "golem-api-host.ts") },
   { find: "golem:api/oplog@1.5.0", replacement: resolve(mockDir, "golem-api-oplog.ts") },
   { find: "golem:api/retry@1.5.0", replacement: resolve(mockDir, "golem-api-retry.ts") },

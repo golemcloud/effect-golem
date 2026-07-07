@@ -12,8 +12,8 @@
  */
 
 import { Effect, Layer } from "effect"
-import type * as AgentHost from "golem:agent/host@1.5.0"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import type * as AgentHost from "golem:agent/host@2.0.0"
+import type * as CoreTypes from "golem:core/types@2.0.0"
 import {
   RpcClient,
   RpcHostError,
@@ -22,15 +22,24 @@ import {
   type RpcInvocationHandle,
 } from "../../src/host/RpcClient.js"
 
+/**
+ * On the new schema model the RPC carrier is a `schema-value-tree`; an
+ * invocation result is `option<schema-value-tree>` (`undefined` for a unit
+ * return). This fake round-trips these values opaquely — tests build the
+ * `schema-value-tree` inputs with `schemaValueToWit(...)` and decode results
+ * with `schemaValueFromWit(...)`.
+ */
+type SchemaValueTree = CoreTypes.SchemaValueTree
+
 /** A single recorded call against any fake `RpcConnection` instance. */
 export interface RecordedRpcCall {
   readonly agentTypeName: string
-  readonly constructorValue: CoreTypes.DataValue
+  readonly constructorValue: SchemaValueTree
   readonly phantomId: CoreTypes.Uuid | undefined
   readonly agentConfig: ReadonlyArray<unknown>
   readonly kind: "invokeAndAwait" | "invoke" | "asyncInvokeAndAwait" | "schedule"
   readonly methodName: string
-  readonly input: CoreTypes.DataValue
+  readonly input: SchemaValueTree
   readonly scheduledTime?: AgentHost.Datetime
 }
 
@@ -45,7 +54,7 @@ export interface RecordedRpcCall {
  * on `setTimeout` races.
  */
 export type RpcResponse =
-  | { readonly tag: "ok"; readonly val: CoreTypes.DataValue }
+  | { readonly tag: "ok"; readonly val: SchemaValueTree | undefined }
   | { readonly tag: "err"; readonly val: AgentHost.RpcError }
   | { readonly tag: "throw"; readonly error: unknown }
   | { readonly tag: "pending" }
@@ -119,7 +128,7 @@ export const make: Effect.Effect<RpcFake> = Effect.sync(() => {
   class FakeFuture {
     private resolved = false
     private result:
-      | { tag: "ok"; val: CoreTypes.DataValue }
+      | { tag: "ok"; val: SchemaValueTree | undefined }
       | { tag: "err"; val: AgentHost.RpcError }
       | undefined
     private throwError: unknown = null
@@ -146,7 +155,7 @@ export const make: Effect.Effect<RpcFake> = Effect.sync(() => {
     }
 
     get():
-      | { tag: "ok"; val: CoreTypes.DataValue }
+      | { tag: "ok"; val: SchemaValueTree | undefined }
       | { tag: "err"; val: AgentHost.RpcError }
       | undefined {
       if (!this.resolved) return undefined
@@ -243,14 +252,14 @@ export const make: Effect.Effect<RpcFake> = Effect.sync(() => {
 
   const makeConnection = (
     agentTypeName: string,
-    constructorValue: CoreTypes.DataValue,
+    constructorValue: SchemaValueTree,
     phantomId: CoreTypes.Uuid | undefined,
     agentConfig: ReadonlyArray<unknown>,
   ): RpcConnection => {
     const record = (
       kind: RecordedRpcCall["kind"],
       methodName: string,
-      input: CoreTypes.DataValue,
+      input: SchemaValueTree,
       scheduledTime?: AgentHost.Datetime,
     ): RecordedRpcCall => {
       const call: RecordedRpcCall = {
@@ -270,7 +279,7 @@ export const make: Effect.Effect<RpcFake> = Effect.sync(() => {
     const dispatch = (
       kind: RecordedRpcCall["kind"],
       methodName: string,
-      input: CoreTypes.DataValue,
+      input: SchemaValueTree,
     ) => {
       record(kind, methodName, input)
       return responder({ agentTypeName, methodName, input })

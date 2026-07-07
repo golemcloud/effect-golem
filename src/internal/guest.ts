@@ -1,9 +1,10 @@
 /**
  * @internal
- * @since 1.5.0
+ * @since 1.6.0
  */
-import type * as AgentCommon from "golem:agent/common@1.5.0"
+import type * as AgentCommon from "golem:agent/common@2.0.0"
 import type * as ApiHost from "golem:api/host@1.5.0"
+import type { SchemaValueTree } from "golem:core/types@2.0.0"
 import {
   dispatchDiscoverAgentTypes,
   dispatchGetDefinition,
@@ -14,23 +15,27 @@ import {
 } from "./agent.js"
 
 /**
- * Shape of the `golem:agent/guest@1.5.0` interface that the base WASM
+ * Shape of the `golem:agent/guest@2.0.0` interface that the base WASM
  * exposes via the `agent-guest` module. Inlined here (instead of
  * imported via `import type * as bindings from "agent-guest"`) so the
  * compiled `.d.ts` stays self-contained and consumers of the published
  * package don't have to register the ambient `agent-guest` declaration.
+ *
+ * The Rust wrapper wraps a returned value in the WIT `result`/`option`:
+ * `invoke` returns the bare `schema-value-tree` (or `undefined` for a unit
+ * return); the wrapper lifts it to `ok(some(..))` / `ok(none)`.
  */
 interface GuestExports {
   initialize: (
     agentType: string,
-    input: AgentCommon.DataValue,
+    input: SchemaValueTree,
     principal: AgentCommon.Principal,
   ) => Promise<void>
   invoke: (
     methodName: string,
-    input: AgentCommon.DataValue,
+    input: SchemaValueTree,
     principal: AgentCommon.Principal,
-  ) => Promise<AgentCommon.DataValue>
+  ) => Promise<SchemaValueTree | undefined>
   getDefinition: () => Promise<AgentCommon.AgentType>
   discoverAgentTypes: () => Promise<AgentCommon.AgentType[]>
 }
@@ -50,10 +55,15 @@ interface LoadSnapshotExports {
  *
  * Users of this library define their agents/methods declaratively via
  * `defineAgent` + `defineMethod`, and `registerAgent` wires them into
- * these dispatchers — they should never need to interact with `guest`,
- * `saveSnapshot`, or `loadSnapshot` directly.
+ * these dispatchers — they should never need to interact with
+ * `golemAgent200Guest`, `saveSnapshot`, or `loadSnapshot` directly.
  *
- * @since 1.5.0
+ * The export-object name follows the wasm-rquickjs convention used by
+ * effect-golem's template generator: the WIT interface short name `guest`
+ * (of `golem:agent/guest@2.0.0`) maps to the JS export `guest`. The Rust
+ * wrapper looks up `guest.discoverAgentTypes` / `guest.invoke` etc.
+ *
+ * @since 1.6.0
  * @category runtime hooks
  */
 export const guest: GuestExports = {
@@ -62,6 +72,15 @@ export const guest: GuestExports = {
   discoverAgentTypes: dispatchDiscoverAgentTypes,
   getDefinition: dispatchGetDefinition,
 }
+
+/**
+ * Backwards-compatible alias. Some call sites / tests refer to the export by
+ * the package-qualified name; both resolve to the same object.
+ *
+ * @since 1.6.0
+ * @category runtime hooks
+ */
+export const golemAgent200Guest: GuestExports = guest
 
 /**
  * Snapshotting hooks. Wired through to the dispatchers in `./agent`.

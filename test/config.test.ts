@@ -4,10 +4,29 @@ import { ConfigError, compileConfig, defineConfig, encodeOverrides } from "../sr
 import type { CompiledConfig } from "../src/Config.js"
 import { ConfigClient } from "../src/host/ConfigClient.js"
 import { toWitCodec } from "../src/WitCodec.js"
-import type * as CoreTypes from "golem:core/types@1.5.0"
+import { schemaValueToWit, v, type SchemaValue } from "../src/internal/schema-model/index.js"
+import { GuestSecretHandle } from "../src/internal/schema-model/secretHandle.js"
+import { SECRET_INTERNAL } from "../src/internal/schema-model/secretInternal.js"
+import { __setRevealImpl } from "./mocks/golem-secrets-reveal.js"
+import type { SchemaGraph, SchemaValueTree } from "golem:core/types@2.0.0"
 
-type WitType = CoreTypes.WitType
-type WitValue = CoreTypes.WitValue
+type WitType = SchemaGraph
+type WitValue = SchemaValueTree
+
+/**
+ * Build a host-returned `secret` config value: a `schema-value-tree` whose
+ * root is a `secret` carrying an opaque handle. On the new model the host
+ * returns a secret handle (not the plaintext); `Config.ts` reveals it via the
+ * `golem:secrets/reveal` capability against the inner-type graph. We wire the
+ * `reveal` mock to return the supplied inner-value tree.
+ */
+const secretValue = (innerTree: SchemaValueTree): SchemaValueTree => {
+  // The `raw` payload is opaque to the SDK; the reveal mock ignores it and
+  // returns the inner tree directly.
+  const handle = GuestSecretHandle.fromRaw(SECRET_INTERNAL, {} as never)
+  __setRevealImpl(() => innerTree)
+  return schemaValueToWit(v.secret(handle))
+}
 
 const encode = <S extends Schema.Top>(
   schema: S,
@@ -15,7 +34,12 @@ const encode = <S extends Schema.Top>(
 ): Effect.Effect<WitValue, unknown> =>
   Effect.gen(function* () {
     const codec = yield* toWitCodec(schema)
-    return yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<WitValue, unknown, never>
+    const sv = (yield* Schema.encodeEffect(codec.codec)(value) as Effect.Effect<
+      SchemaValue,
+      unknown,
+      never
+    >)
+    return schemaValueToWit(sv)
   })
 
 const compile = <F extends Record<string, Schema.Top>>(
@@ -55,10 +79,10 @@ describe("compileConfig", () => {
       const greet = cc.declarations.find((d) => d.path[0] === "greeting")!
       expect(greet.source).toBe("local")
       expect(greet.path).toEqual(["greeting"])
-      expect(greet.valueType.nodes[0]!.type.tag).toBe("prim-string-type")
+      expect(greet.graph.root.body.tag).toBe("string")
       const port = cc.declarations.find((d) => d.path[0] === "port")!
       expect(port.source).toBe("local")
-      expect(port.valueType.nodes[0]!.type.tag).toBe("prim-f64-type")
+      expect(port.graph.root.body.tag).toBe("f64")
     }),
   )
 
@@ -71,8 +95,11 @@ describe("compileConfig", () => {
       const decl = cc.declarations[0]!
       expect(decl.source).toBe("secret")
       expect(decl.path).toEqual(["apiKey"])
-      // valueType uses the inner schema's WIT representation.
-      expect(decl.valueType.nodes[0]!.type.tag).toBe("prim-string-type")
+      // A secret leaf wraps its plaintext type in a `secret` capability node;
+      // the inner type carries the actual (string) representation.
+      const body = decl.graph.root.body as { tag: string; inner: { body: { tag: string } } }
+      expect(body.tag).toBe("secret")
+      expect(body.inner.body.tag).toBe("string")
     }),
   )
 
@@ -124,11 +151,13 @@ describe("compileConfig", () => {
   it.effect("never caches secret leaves", () =>
     Effect.gen(function* () {
       const cc = yield* compile({ apiKey: Schema.Redacted(Schema.String) })
-      const wv = yield* encode(Schema.String, "sk-1234")
+      const innerWv = yield* encode(Schema.String, "sk-1234")
       let calls = 0
+      // A secret handle is take-once, so each host call returns a fresh
+      // secret-wrapped tree; the reveal mock yields the inner string tree.
       const stub = ConfigStub(() => {
         calls++
-        return wv
+        return secretValue(innerWv)
       })
       const shape = (yield* cc.buildShape().pipe(Effect.provide(stub))) as {
         apiKey: { get: Effect.Effect<Redacted.Redacted<string>, ConfigError> }
@@ -149,8 +178,8 @@ describe("compileConfig", () => {
       // value through the host.
       const InnerStruct = Schema.Struct({ foo: Schema.String, bar: Schema.Number })
       const cc = yield* compile({ apiToken: Schema.Redacted(InnerStruct) })
-      const wv = yield* encode(InnerStruct, { foo: "abc", bar: 42 })
-      const stub = ConfigStub(() => wv)
+      const innerWv = yield* encode(InnerStruct, { foo: "abc", bar: 42 })
+      const stub = ConfigStub(() => secretValue(innerWv))
       const shape = (yield* cc.buildShape().pipe(Effect.provide(stub))) as {
         apiToken: {
           get: Effect.Effect<Redacted.Redacted<{ foo: string; bar: number }>, ConfigError>
@@ -343,11 +372,11 @@ describe("Schema.Option leaves", () => {
     }),
   )
 
-  it.effect("emits an option-type WitType in the AgentConfigDeclaration valueType", () =>
+  it.effect("emits an option-type in the AgentConfigDeclaration graph", () =>
     Effect.gen(function* () {
       const cc = yield* compile({ redisUrl: Schema.Option(Schema.String) })
       expect(cc.declarations.length).toBe(1)
-      expect(cc.declarations[0]!.valueType.nodes[0]!.type.tag).toBe("option-type")
+      expect(cc.declarations[0]!.graph.root.body.tag).toBe("option")
     }),
   )
 })

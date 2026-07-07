@@ -1,8 +1,11 @@
 /**
  * @since 1.5.0
  */
-import { Context } from "effect"
+import { Context, Schema } from "effect"
 import type * as AgentCommon from "golem:agent/common@1.5.0"
+import { witPrincipalAnnotationKey } from "./WitTypes.js"
+
+const PRINCIPAL_TAGS = ["oidc", "agent", "golem-user", "anonymous"]
 
 /**
  * Identity of an authenticated agent caller. Mirrors the WIT
@@ -83,3 +86,33 @@ export type GolemUserPrincipal = AgentCommon.GolemUserPrincipal
 export class Principal extends Context.Service<Principal, AgentCommon.Principal>()(
   "effect-golem/Principal",
 ) {}
+
+/**
+ * Schema for a {@link PrincipalValue} carried as ordinary structured data in a
+ * method parameter or return value — the WIT `golem:agent/common` `principal`
+ * variant (`oidc` / `agent` / `golem-user` / `anonymous`).
+ *
+ * Unlike the {@link Principal} service (a capability read of the *current*
+ * caller), this schema lets a `Principal` travel as a plain value: use it as a
+ * method `input` / `success` schema, or nest it inside a `Schema.Struct`. The
+ * schema is annotated with `witPrincipalAnnotationKey`; the codec
+ * (`toWitCodec`) recognises the annotation and lowers it to the `principal`
+ * variant, round-tripping the host `Principal` shape exactly (case order
+ * `oidc` / `agent` / `golem-user` / `anonymous`).
+ *
+ * **Example**
+ *
+ * ```ts
+ * method({ input: { caller: PrincipalSchema }, success: Schema.String })
+ * ```
+ *
+ * @since 1.6.0
+ * @category codecs
+ */
+export const PrincipalSchema: Schema.Schema<AgentCommon.Principal> = Schema.declare(
+  (u): u is AgentCommon.Principal =>
+    typeof u === "object" &&
+    u !== null &&
+    typeof (u as { tag?: unknown }).tag === "string" &&
+    PRINCIPAL_TAGS.includes((u as { tag: string }).tag),
+).pipe(Schema.annotate({ [witPrincipalAnnotationKey]: true }))

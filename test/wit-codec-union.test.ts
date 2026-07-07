@@ -14,9 +14,9 @@ const roundtrip = (s: Schema.Top, v: unknown) =>
   Effect.gen(function* () {
     const wc = yield* compile(s)
     const codec = wc.codec as Schema.Codec<any, any, never, never>
-    const wv = yield* Schema.encodeEffect(codec)(v)
-    const back = yield* Schema.decodeEffect(codec)(wv)
-    return { wc, wv, back }
+    const sv = yield* Schema.encodeEffect(codec)(v)
+    const back = yield* Schema.decodeEffect(codec)(sv)
+    return { wc, sv, back }
   })
 
 describe("Schema.Union → WIT variant", () => {
@@ -24,13 +24,10 @@ describe("Schema.Union → WIT variant", () => {
     Effect.gen(function* () {
       const U = Schema.Union([Schema.String, Schema.Number])
       const wc = yield* compile(U)
-      expect(wc.witType.nodes[0]?.type).toMatchObject({
-        tag: "variant-type",
-        val: [
-          ["case0", expect.any(Number)],
-          ["case1", expect.any(Number)],
-        ],
-      })
+      const root = wc.graph.root.body as any
+      expect(root.tag).toBe("variant")
+      expect(root.cases.map((c: any) => c.name)).toEqual(["case0", "case1"])
+      expect(root.cases.every((c: any) => c.payload !== undefined)).toBe(true)
     }),
   )
 
@@ -41,9 +38,9 @@ describe("Schema.Union → WIT variant", () => {
         Schema.Number.pipe(withVariantCaseName("count")),
       ])
       const wc = yield* compile(U)
-      const root = wc.witType.nodes[0]?.type
-      expect(root?.tag).toBe("variant-type")
-      expect((root as any).val.map((v: any) => v[0])).toEqual(["text", "count"])
+      const root = wc.graph.root.body
+      expect(root?.tag).toBe("variant")
+      expect((root as any).cases.map((c: any) => c.name)).toEqual(["text", "count"])
     }),
   )
 
@@ -52,11 +49,11 @@ describe("Schema.Union → WIT variant", () => {
       const U = Schema.Union([Schema.String, Int32])
       const a = yield* roundtrip(U, "hi")
       expect(a.back).toBe("hi")
-      expect((a.wv.nodes[0] as any).val[0]).toBe(0)
+      expect((a.sv as any).caseIndex).toBe(0)
 
       const b = yield* roundtrip(U, 42)
       expect(b.back).toBe(42)
-      expect((b.wv.nodes[0] as any).val[0]).toBe(1)
+      expect((b.sv as any).caseIndex).toBe(1)
     }),
   )
 
@@ -68,10 +65,10 @@ describe("Schema.Union → WIT variant", () => {
         Schema.Null.pipe(withVariantCaseName("nothing")),
       ])
       const wc = yield* compile(U)
-      const root = wc.witType.nodes[0]?.type as any
-      // 'nothing' has no payload (idx undefined).
-      expect(root.val.map((v: any) => v[0])).toEqual(["text", "count", "nothing"])
-      expect(root.val[2][1]).toBeUndefined()
+      const root = wc.graph.root.body as any
+      // 'nothing' has no payload (payload undefined).
+      expect(root.cases.map((c: any) => c.name)).toEqual(["text", "count", "nothing"])
+      expect(root.cases[2].payload).toBeUndefined()
 
       const a = yield* roundtrip(U, "x")
       expect(a.back).toBe("x")
@@ -123,9 +120,9 @@ describe("Schema.Union → WIT variant", () => {
         local: { path: Schema.String },
       })
       const wc = yield* compile(U)
-      const root = wc.witType.nodes[0]?.type as any
-      expect(root.tag).toBe("variant-type")
-      expect(root.val.map((v: any) => v[0])).toEqual(["memory", "local"])
+      const root = wc.graph.root.body as any
+      expect(root.tag).toBe("variant")
+      expect(root.cases.map((c: any) => c.name)).toEqual(["memory", "local"])
       const r = yield* roundtrip(U, { _tag: "local", path: "/tmp" })
       expect(r.back).toEqual({ _tag: "local", path: "/tmp" })
     }),
@@ -170,7 +167,7 @@ describe("Schema.Union → WIT variant", () => {
     Effect.gen(function* () {
       const U = Schema.NullishOr(Schema.String)
       const wc = yield* compile(U)
-      expect(wc.witType.nodes[0]?.type.tag).toBe("variant-type")
+      expect(wc.graph.root.body.tag).toBe("variant")
       // round-trips for both empties and the real value
       expect((yield* roundtrip(U, "x")).back).toBe("x")
       expect((yield* roundtrip(U, null)).back).toBeNull()
@@ -181,14 +178,14 @@ describe("Schema.Union → WIT variant", () => {
   it.effect("Schema.Option still emits option-type (not collapsed by toEncoded)", () =>
     Effect.gen(function* () {
       const wc = yield* compile(Schema.Option(Schema.String))
-      expect(wc.witType.nodes[0]?.type.tag).toBe("option-type")
+      expect(wc.graph.root.body.tag).toBe("option")
     }),
   )
 
   it.effect("Schema.Result still emits result-type", () =>
     Effect.gen(function* () {
       const wc = yield* compile(Schema.Result(Schema.Number, Schema.String))
-      expect(wc.witType.nodes[0]?.type.tag).toBe("result-type")
+      expect(wc.graph.root.body.tag).toBe("result")
     }),
   )
 

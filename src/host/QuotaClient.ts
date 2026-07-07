@@ -44,10 +44,10 @@ export const QuotaLive: Layer.Layer<QuotaClient> = Layer.succeed(
   QuotaClient,
   QuotaClient.of({
     acquireQuotaToken: (resourceName, expectedUse) =>
-      new QuotaHost.QuotaToken(resourceName, expectedUse),
-    reserve: (token, amount) => token.reserve(amount),
+      QuotaHost.newToken(resourceName, expectedUse),
+    reserve: (token, amount) => QuotaHost.reserve(token, amount),
     commit: (reservation, used) => QuotaHost.Reservation.commit(reservation, used),
-    split: (token, childExpectedUse) => token.split(childExpectedUse),
-    merge: (token, other) => token.merge(other),
+    split: (token, childExpectedUse) => QuotaHost.split(token, childExpectedUse),
+    merge: (token, other) => QuotaHost.merge(token, other),
   }),
 )

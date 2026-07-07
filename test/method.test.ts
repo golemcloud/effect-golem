@@ -5,7 +5,7 @@ import {
   compileMethodSpec,
   defineMethod,
   invoke,
-  invokeDataValue,
+  invokeSchemaValue,
   method,
   withDescription,
   withHttp,
@@ -13,6 +13,7 @@ import {
 } from "../src/Method.js"
 import { get, post } from "../src/Http.js"
 import { toWitCodec } from "../src/WitCodec.js"
+import { schemaValueFromWit, schemaValueToWit, v } from "../src/internal/schema-model/index.js"
 
 const Person = Schema.Struct({
   name: Schema.String,
@@ -21,14 +22,14 @@ const Person = Schema.Struct({
 
 const greet = defineMethod({
   name: "greet",
-  params: { person: Person, greeting: Schema.String },
+  input: { person: Person, greeting: Schema.String },
   success: Schema.String,
   body: ({ person, greeting }) => Effect.succeed(`${greeting}, ${person.name} (${person.age})!`),
 })
 
 const ping = defineMethod({
   name: "ping",
-  params: {},
+  input: {},
   success: Schema.Void,
   body: () => Effect.void,
 })
@@ -53,73 +54,58 @@ describe("Method (decoded invoke)", () => {
 })
 
 describe("MethodCodec", () => {
-  it.effect("invokes a method through a Golem DataValue (tuple) and gets a tuple back", () =>
+  it.effect("invokes a method through a schema-value-tree and gets a value back", () =>
     Effect.gen(function* () {
       const mc = yield* compileMethod(greet)
 
-      // Build the input DataValue by encoding each parameter through its WitCodec.
+      // Build the input schema-value-tree: a record of the params encoded
+      // through each WitCodec, in declaration order.
       const personCodec = yield* toWitCodec(Person)
       const stringCodec = yield* toWitCodec(Schema.String)
-      const personWv = yield* Schema.encodeEffect(personCodec.codec)({ name: "Ada", age: 36 })
-      const greetingWv = yield* Schema.encodeEffect(stringCodec.codec)("Hello")
-      const input = {
-        tag: "tuple" as const,
-        val: [
-          { tag: "component-model" as const, val: personWv },
-          { tag: "component-model" as const, val: greetingWv },
-        ],
-      }
+      const personSv = yield* Schema.encodeEffect(personCodec.codec)({ name: "Ada", age: 36 })
+      const greetingSv = yield* Schema.encodeEffect(stringCodec.codec)("Hello")
+      const input = schemaValueToWit(v.record([personSv, greetingSv]))
 
-      const out = yield* invokeDataValue(mc, greet.body, input)
-      expect(out.tag).toBe("tuple")
-      if (out.tag !== "tuple") throw new Error()
-      expect(out.val.length).toBe(1)
-      const elem = out.val[0]!
-      expect(elem.tag).toBe("component-model")
-      if (elem.tag !== "component-model") throw new Error()
+      const out = yield* invokeSchemaValue(mc, greet.body, input)
+      if (out === undefined) throw new Error()
 
       // Decode the result back through the success WitCodec.
-      const decoded = yield* Schema.decodeEffect(stringCodec.codec)(elem.val)
+      const decoded = yield* Schema.decodeEffect(stringCodec.codec)(schemaValueFromWit(out))
       expect(decoded).toBe("Hello, Ada (36)!")
     }),
   )
 
-  it.effect("returns an empty tuple DataValue for unit-returning methods", () =>
+  it.effect("returns undefined for unit-returning methods", () =>
     Effect.gen(function* () {
       const mc = yield* compileMethod(ping)
-      const out = yield* invokeDataValue(mc, ping.body, { tag: "tuple", val: [] })
-      expect(out).toEqual({ tag: "tuple", val: [] })
+      const out = yield* invokeSchemaValue(mc, ping.body, schemaValueToWit(v.record([])))
+      expect(out).toBeUndefined()
     }),
   )
 
-  it.effect("exposes the method's input/output DataSchemas", () =>
+  it.effect("exposes the method's input/output codecs", () =>
     Effect.gen(function* () {
       const mc = yield* compileMethod(greet)
-      expect(mc.inputSchema.tag).toBe("tuple")
-      if (mc.inputSchema.tag !== "tuple") throw new Error()
-      expect(mc.inputSchema.val.map(([k]) => k)).toEqual(["person", "greeting"])
+      expect(mc.inputCodecs.map((c) => c.name)).toEqual(["person", "greeting"])
 
-      expect(mc.outputSchema.tag).toBe("tuple")
-      if (mc.outputSchema.tag !== "tuple") throw new Error()
-      expect(mc.outputSchema.val.length).toBe(1)
+      expect(mc.output.tag).toBe("single")
 
       const pingMc = yield* compileMethod(ping)
-      if (pingMc.outputSchema.tag !== "tuple") throw new Error()
-      expect(pingMc.outputSchema.val.length).toBe(0)
+      expect(pingMc.output.tag).toBe("unit")
     }),
   )
 })
 
 describe("Method pipeable combinators", () => {
   it("`method({...})` is pipeable (has a `.pipe` method)", () => {
-    const spec = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const spec = method({ input: { by: Schema.Number }, success: Schema.Number })
     expect(typeof spec.pipe).toBe("function")
   })
 
   it("`defineMethod({...})` is pipeable (has a `.pipe` method)", () => {
     const m = defineMethod({
       name: "addOne",
-      params: { by: Schema.Number },
+      input: { by: Schema.Number },
       success: Schema.Number,
       body: ({ by }) => Effect.succeed(by + 1),
     })
@@ -131,14 +117,14 @@ describe("Method pipeable combinators", () => {
   })
 
   it("`.pipe(withDescription(...))` sets description without mutating the input", () => {
-    const base = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const base = method({ input: { by: Schema.Number }, success: Schema.Number })
     const piped = base.pipe(withDescription("Add by"))
     expect(base.description).toBeUndefined()
     expect(piped.description).toBe("Add by")
   })
 
   it("`.pipe(withPromptHint(...))` sets promptHint without mutating the input", () => {
-    const base = method({ params: { by: Schema.Number }, success: Schema.Number })
+    const base = method({ input: { by: Schema.Number }, success: Schema.Number })
     const piped = base.pipe(withPromptHint("Increment by `by`"))
     expect(base.promptHint).toBeUndefined()
     expect(piped.promptHint).toBe("Increment by `by`")
@@ -146,7 +132,7 @@ describe("Method pipeable combinators", () => {
 
   it("`.pipe(withHttp(...))` appends endpoints, preserving any pre-existing ones", () => {
     const base = method({
-      params: { by: Schema.Number },
+      input: { by: Schema.Number },
       success: Schema.Number,
       http: [post("/add")],
     })
@@ -160,7 +146,7 @@ describe("Method pipeable combinators", () => {
     // Happy path: every endpoint binding name (`id`, `q`) appears in
     // the method's `params`, so this typechecks AND runs.
     const piped = method({
-      params: { id: Schema.String, q: Schema.String },
+      input: { id: Schema.String, q: Schema.String },
       success: Schema.String,
     }).pipe(withHttp(get("/items/{id}?q={q}")))
     expect(piped.http?.length).toBe(1)
@@ -170,7 +156,7 @@ describe("Method pipeable combinators", () => {
     // to a name NOT in `params` is a compile-time error. The
     // `@ts-expect-error` directive asserts the type checker rejects it.
     method({
-      params: { id: Schema.String },
+      input: { id: Schema.String },
       success: Schema.String,
       // @ts-expect-error — endpoint binds `nope`, which is not a param
     }).pipe(withHttp(get("/items/{id}/{nope}")))
@@ -178,7 +164,7 @@ describe("Method pipeable combinators", () => {
 
   it("multi-combinator chain produces the same MethodSpec as the literal form", () => {
     const piped = method({
-      params: { by: Schema.Number },
+      input: { by: Schema.Number },
       success: Schema.Number,
     }).pipe(
       withHttp(post("/add"), get("/add?by={by}")),
@@ -186,7 +172,7 @@ describe("Method pipeable combinators", () => {
       withPromptHint("Increment by `by`"),
     )
     const literal = method({
-      params: { by: Schema.Number },
+      input: { by: Schema.Number },
       success: Schema.Number,
       description: "Add by",
       promptHint: "Increment by `by`",
@@ -221,27 +207,25 @@ const NotFoundError = Schema.Struct({
 describe("MethodCodec — typed errors", () => {
   it("compileMethodSpec flips errorWrapped when a non-Void error is declared", () =>
     Effect.gen(function* () {
-      const noErr = yield* compileMethodSpec(
-        "noErr",
-        method({ params: {}, success: Schema.Number }),
-      )
+      const noErr = yield* compileMethodSpec("noErr", method({ input: {}, success: Schema.Number }))
       const withErr = yield* compileMethodSpec(
         "withErr",
-        method({ params: {}, success: Schema.Number, error: NotFoundError }),
+        method({ input: {}, success: Schema.Number, error: NotFoundError }),
       )
       expect(noErr.errorWrapped).toBe(false)
       expect(withErr.errorWrapped).toBe(true)
-      expect(withErr.outputElement).not.toBeNull()
-      expect(withErr.outputCodec).not.toBeNull()
+      // A non-Void typed error folds success+error into a single
+      // `result<S, E>` output codec (never a unit return).
+      expect(withErr.output.tag).toBe("single")
     }).pipe(Effect.runPromise))
 
   it.effect(
-    "invokeDataValue folds Effect.fail<E> into Result.fail and encodes through `result<S, E>`",
+    "invokeSchemaValue folds Effect.fail<E> into Result.fail and encodes through `result<S, E>`",
     () =>
       Effect.gen(function* () {
         const lookup = defineMethod({
           name: "lookup",
-          params: { id: Schema.String },
+          input: { id: Schema.String },
           success: Schema.Number,
           error: NotFoundError,
           body: ({ id }) =>
@@ -252,36 +236,34 @@ describe("MethodCodec — typed errors", () => {
         const mc = yield* compileMethod(lookup)
         expect(mc.errorWrapped).toBe(true)
 
-        // Build the input DataValue for `id = "ok"`.
+        // Build the input record for `id = "ok"`.
         const stringCodec = yield* toWitCodec(Schema.String)
-        const idWvOk = yield* Schema.encodeEffect(stringCodec.codec)("ok")
-        const okOut = yield* invokeDataValue(mc, lookup.body, {
-          tag: "tuple",
-          val: [{ tag: "component-model", val: idWvOk }],
-        })
-        expect(okOut.tag).toBe("tuple")
-        if (okOut.tag !== "tuple") throw new Error()
-        const okElem = okOut.val[0]!
-        if (okElem.tag !== "component-model") throw new Error()
+        const idOkSv = yield* Schema.encodeEffect(stringCodec.codec)("ok")
+        const okOut = yield* invokeSchemaValue(
+          mc,
+          lookup.body,
+          schemaValueToWit(v.record([idOkSv])),
+        )
+        if (okOut === undefined) throw new Error()
         // Decode through the wrapped success-codec to confirm it is a
-        // component-model `result<u32, NotFoundError>` carrying success.
+        // `result<u32, NotFoundError>` carrying success.
         const resultCodec = yield* toWitCodec(Schema.Result(Schema.Number, NotFoundError))
-        const decodedOk = yield* Schema.decodeEffect(resultCodec.codec)(okElem.val)
+        const decodedOk = yield* Schema.decodeEffect(resultCodec.codec)(schemaValueFromWit(okOut))
         expect(Result.isSuccess(decodedOk)).toBe(true)
         if (!Result.isSuccess(decodedOk)) throw new Error()
         expect(decodedOk.success).toBe(7)
 
         // And now the typed-failure path.
-        const idWvMiss = yield* Schema.encodeEffect(stringCodec.codec)("nope")
-        const missOut = yield* invokeDataValue(mc, lookup.body, {
-          tag: "tuple",
-          val: [{ tag: "component-model", val: idWvMiss }],
-        })
-        expect(missOut.tag).toBe("tuple")
-        if (missOut.tag !== "tuple") throw new Error()
-        const missElem = missOut.val[0]!
-        if (missElem.tag !== "component-model") throw new Error()
-        const decodedMiss = yield* Schema.decodeEffect(resultCodec.codec)(missElem.val)
+        const idMissSv = yield* Schema.encodeEffect(stringCodec.codec)("nope")
+        const missOut = yield* invokeSchemaValue(
+          mc,
+          lookup.body,
+          schemaValueToWit(v.record([idMissSv])),
+        )
+        if (missOut === undefined) throw new Error()
+        const decodedMiss = yield* Schema.decodeEffect(resultCodec.codec)(
+          schemaValueFromWit(missOut),
+        )
         expect(Result.isFailure(decodedMiss)).toBe(true)
         if (!Result.isFailure(decodedMiss)) throw new Error()
         expect(decodedMiss.failure).toEqual({ _tag: "NotFoundError", resource: "nope" })
@@ -292,7 +274,7 @@ describe("MethodCodec — typed errors", () => {
     Effect.gen(function* () {
       const cmd = defineMethod({
         name: "cmd",
-        params: { fail: Schema.Boolean },
+        input: { fail: Schema.Boolean },
         success: Schema.Void,
         error: NotFoundError,
         body: ({ fail }) =>
@@ -301,39 +283,27 @@ describe("MethodCodec — typed errors", () => {
       const mc = yield* compileMethod(cmd)
       expect(mc.errorWrapped).toBe(true)
       expect(mc.successVoid).toBe(true)
-      // Crucially: outputElement is non-null even though success is Void,
-      // because the wrapped Result needs an element to carry the err tag
+      // Crucially: output is `single` even though success is Void,
+      // because the wrapped Result needs a codec to carry the err tag
       // (the success arm uses an empty-record stand-in).
-      expect(mc.outputElement).not.toBeNull()
+      expect(mc.output.tag).toBe("single")
 
       const boolCodec = yield* toWitCodec(Schema.Boolean)
-      const failWv = yield* Schema.encodeEffect(boolCodec.codec)(true)
-      const out = yield* invokeDataValue(mc, cmd.body, {
-        tag: "tuple",
-        val: [{ tag: "component-model", val: failWv }],
-      })
-      expect(out.tag).toBe("tuple")
-      if (out.tag !== "tuple") throw new Error()
-      expect(out.val.length).toBe(1)
-      const elem = out.val[0]!
-      if (elem.tag !== "component-model") throw new Error()
+      const failSv = yield* Schema.encodeEffect(boolCodec.codec)(true)
+      const out = yield* invokeSchemaValue(mc, cmd.body, schemaValueToWit(v.record([failSv])))
+      if (out === undefined) throw new Error()
       // The success arm's stand-in is `Schema.Struct({})`.
       const resultCodec = yield* toWitCodec(Schema.Result(Schema.Struct({}), NotFoundError))
-      const decoded = yield* Schema.decodeEffect(resultCodec.codec)(elem.val)
+      const decoded = yield* Schema.decodeEffect(resultCodec.codec)(schemaValueFromWit(out))
       expect(Result.isFailure(decoded)).toBe(true)
       if (!Result.isFailure(decoded)) throw new Error()
       expect(decoded.failure).toEqual({ _tag: "NotFoundError", resource: "always" })
 
       // And the success path encodes Result.succeed({}) on the wire.
-      const okWv = yield* Schema.encodeEffect(boolCodec.codec)(false)
-      const okOut = yield* invokeDataValue(mc, cmd.body, {
-        tag: "tuple",
-        val: [{ tag: "component-model", val: okWv }],
-      })
-      if (okOut.tag !== "tuple") throw new Error()
-      const okElem = okOut.val[0]!
-      if (okElem.tag !== "component-model") throw new Error()
-      const decodedOk = yield* Schema.decodeEffect(resultCodec.codec)(okElem.val)
+      const okSv = yield* Schema.encodeEffect(boolCodec.codec)(false)
+      const okOut = yield* invokeSchemaValue(mc, cmd.body, schemaValueToWit(v.record([okSv])))
+      if (okOut === undefined) throw new Error()
+      const decodedOk = yield* Schema.decodeEffect(resultCodec.codec)(schemaValueFromWit(okOut))
       expect(Result.isSuccess(decodedOk)).toBe(true)
       if (!Result.isSuccess(decodedOk)) throw new Error()
       expect(decodedOk.success).toEqual({})
@@ -344,13 +314,15 @@ describe("MethodCodec — typed errors", () => {
     Effect.gen(function* () {
       const boom = defineMethod({
         name: "boom",
-        params: {},
+        input: {},
         success: Schema.Number,
         error: NotFoundError,
         body: () => Effect.die(new Error("kaboom")),
       })
       const mc = yield* compileMethod(boom)
-      const exit = yield* Effect.exit(invokeDataValue(mc, boom.body, { tag: "tuple", val: [] }))
+      const exit = yield* Effect.exit(
+        invokeSchemaValue(mc, boom.body, schemaValueToWit(v.record([]))),
+      )
       expect(Exit.isFailure(exit)).toBe(true)
       if (!Exit.isFailure(exit)) throw new Error()
       // A defect surfaces with at least one Die reason in the cause.

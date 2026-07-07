@@ -41,11 +41,11 @@
  *
  * defineAgent({
  *   name: "PaymentWatcher",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   http: Http.mount("/watchers/{name}", { webhookSuffix: "/payments" }),
  *   methods: {
  *     waitForPayment: method({
- *       params: {},
+ *       input: {},
  *       success: PaymentEvent,
  *       http: [Http.post("/wait")],
  *     }),
@@ -69,6 +69,7 @@
  */
 
 import { Effect, Schema } from "effect"
+import { strictTextDecoder } from "./internal/textDecoder.js"
 import { AgentsHostError, Promises } from "./Agents.js"
 import type { PromiseId } from "./Agents.js"
 import { AgentHostClient } from "./host/AgentHostClient.js"
@@ -101,7 +102,7 @@ export class WebhookHostError {
 // WebhookPayload — the HTTP POST body delivered to the webhook URL
 // ---------------------------------------------------------------------------
 
-const strictDecoder = new TextDecoder("utf-8", { fatal: true })
+const strictDecoder = strictTextDecoder()
 
 /**
  * The HTTP POST body delivered to the webhook URL. Mirrors the
