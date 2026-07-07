@@ -14,17 +14,17 @@ import { Snapshot } from "../src/index.js"
 
 const SpecOnlyAgent = defineAgent({
   name: "SpecOnlyAgent",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   methods: {
-    ping: method({ params: {}, success: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 })
 
 const ImplementedAgent = defineAgent({
   name: "ImplementedAgent",
-  constructorParams: { initial: Schema.Number },
+  id: { initial: Schema.Number },
   methods: {
-    getValue: method({ params: {}, success: Schema.Number }),
+    getValue: method({ input: {}, success: Schema.Number }),
   },
 }).implement(({ initial }) =>
   Effect.gen(function* () {
@@ -70,8 +70,8 @@ describe("defineAgent / .implement split", () => {
   it("implemented agent shares the SAME client reference as its spec", () => {
     const spec = defineAgent({
       name: "SharedClientAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     expect(implemented.client).toBe(spec.client)
@@ -80,8 +80,8 @@ describe("defineAgent / .implement split", () => {
   it("implemented agent exposes a back-reference to its spec", () => {
     const spec = defineAgent({
       name: "BackRefAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     expect(implemented.spec).toBe(spec)
@@ -90,27 +90,27 @@ describe("defineAgent / .implement split", () => {
   it("mutating the original literal after defineAgent does NOT affect the spec", () => {
     const literal = {
       name: "MutationCheckAgent",
-      constructorParams: { name: Schema.String },
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: { name: Schema.String },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }
     const spec = defineAgent(literal)
     // Mutate the original literal's methods map AFTER defineAgent has
     // returned. The spec must have captured a frozen copy.
     const mutated = literal.methods as Record<string, unknown>
-    mutated["sneaky"] = method({ params: {}, success: Schema.Void })
+    mutated["sneaky"] = method({ input: {}, success: Schema.Void })
     // The spec's methods record was shallow-cloned + frozen, so the
     // post-defineAgent mutation must not be reflected.
     expect(Object.keys(spec.methods)).toEqual(["ping"])
     expect(Object.isFrozen(spec.methods)).toBe(true)
-    expect(Object.isFrozen(spec.constructorParams)).toBe(true)
+    expect(Object.isFrozen(spec.id)).toBe(true)
   })
 
   it("calling .implement twice on specs sharing a name surfaces as AgentError", async () => {
     // First impl: succeeds and registers.
     const specA = defineAgent({
       name: "DoubleImplAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     specA.implement(() => Effect.succeed({ ping: () => Effect.void }))
 
@@ -118,8 +118,8 @@ describe("defineAgent / .implement split", () => {
     // from discoverAgentTypes as a typed AgentError.
     const specB = defineAgent({
       name: "DoubleImplAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     specB.implement(() => Effect.succeed({ ping: () => Effect.void }))
 
@@ -138,8 +138,8 @@ describe("defineAgent / .implement split", () => {
   it("calling .implement TWICE on the SAME spec is single-shot (deferred dup error)", async () => {
     const spec = defineAgent({
       name: "SingleShotAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     // First call: succeeds and registers.
     spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
@@ -161,7 +161,7 @@ describe("defineAgent / .implement split", () => {
 
   it("AgentSpec exposes metadata fields FLAT (no nested .metadata)", () => {
     expect(SpecOnlyAgent.name).toBe("SpecOnlyAgent")
-    expect(SpecOnlyAgent.constructorParams).toBeDefined()
+    expect(SpecOnlyAgent.id).toBeDefined()
     expect(SpecOnlyAgent.methods).toBeDefined()
     // The flat-fields convention means there is no nested wrapper.
     expect((SpecOnlyAgent as unknown as { metadata?: unknown }).metadata).toBeUndefined()
@@ -172,8 +172,8 @@ describe("defineAgent / .implement split", () => {
   it("ImplementedAgent does NOT expose .implement (type-level guard)", () => {
     const spec = defineAgent({
       name: "NoReImplementAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     })
     const implemented = spec.implement(() => Effect.succeed({ ping: () => Effect.void }))
     // @ts-expect-error — `implement` MUST NOT exist on ImplementedAgent.
@@ -188,8 +188,8 @@ describe("defineAgent / .implement split", () => {
     // into the no-snapshot variant.
     const noSnap = defineAgent({
       name: "NoSnapAgent",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((input) => {
       // input is the constructor-input record; no second arg
       void input
@@ -199,12 +199,12 @@ describe("defineAgent / .implement split", () => {
 
     const withSnap = defineAgent({
       name: "WithSnapAgent",
-      constructorParams: {},
-      snapshot: Snapshot.define({
+      id: {},
+      snapshotting: Snapshot.define({
         schema: Schema.Struct({ count: Schema.Number }),
         policy: Snapshot.policy.default,
       }),
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement((input, snap) =>
       Effect.gen(function* () {
         void input

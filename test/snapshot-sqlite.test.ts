@@ -37,15 +37,15 @@ const oidcZoe = {
 
 const SqliteCounter = defineAgent({
   name: "SqliteCounterTest",
-  constructorParams: { name: Schema.String },
-  snapshot: Snapshot.define({
+  id: { name: Schema.String },
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({ note: Schema.String }),
     databases: ["counters"] as const,
     policy: Snapshot.policy.everyN(5),
   }),
   methods: {
-    note: method({ params: {}, success: Schema.String }),
-    setNote: method({ params: { v: Schema.String }, success: Schema.Void }),
+    note: method({ input: {}, success: Schema.String }),
+    setNote: method({ input: { v: Schema.String }, success: Schema.Void }),
   },
 }).implement(({ name }, snap) =>
   Effect.gen(function* () {
@@ -65,14 +65,14 @@ const SqliteCounter = defineAgent({
 
 const SqliteForgetfulAttach = defineAgent({
   name: "SqliteForgetfulAttach",
-  constructorParams: {},
-  snapshot: Snapshot.define({
+  id: {},
+  snapshotting: Snapshot.define({
     schema: Schema.Struct({}),
     databases: ["counters"] as const,
     policy: Snapshot.policy.default,
   }),
   methods: {
-    ping: method({ params: {}, success: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 }).implement((_input, snap) =>
   Effect.gen(function* () {

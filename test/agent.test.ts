@@ -19,15 +19,15 @@ const Person = Schema.Struct({
 const Greeter = defineAgent({
   name: "Greeter",
   description: "An agent that greets people",
-  constructorParams: {},
+  id: {},
   methods: {
     greet: method({
-      params: { person: Person, greeting: Schema.String },
+      input: { person: Person, greeting: Schema.String },
       success: Schema.String,
       description: "Greet the given person with the given greeting",
       promptHint: "Use to produce a friendly salutation for a Person.",
     }),
-    ping: method({ params: {}, success: Schema.Void }),
+    ping: method({ input: {}, success: Schema.Void }),
   },
 }).implement(() =>
   Effect.succeed({
@@ -40,10 +40,10 @@ const Greeter = defineAgent({
  *  side-effect during initialization. */
 const Counter = defineAgent({
   name: "Counter",
-  constructorParams: { initial: Schema.Number },
+  id: { initial: Schema.Number },
   methods: {
-    getValue: method({ params: {}, success: Schema.Number }),
-    add: method({ params: { by: Schema.Number }, success: Schema.Void }),
+    getValue: method({ input: {}, success: Schema.Number }),
+    add: method({ input: { by: Schema.Number }, success: Schema.Void }),
   },
 }).implement(({ initial }) =>
   Effect.gen(function* () {
@@ -76,11 +76,11 @@ const principalTag = (p: PrincipalValue): string => (p.tag === "oidc" ? `oidc:${
  */
 const PrincipalAgent = defineAgent({
   name: "PrincipalAgent",
-  constructorParams: {},
+  id: {},
   methods: {
-    owner: method({ params: {}, success: Schema.String }),
-    caller: method({ params: {}, success: Schema.String }),
-    callerForked: method({ params: {}, success: Schema.String }),
+    owner: method({ input: {}, success: Schema.String }),
+    caller: method({ input: {}, success: Schema.String }),
+    callerForked: method({ input: {}, success: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -127,11 +127,11 @@ class TestConfig extends defineConfig("ConfigAgent.Cfg", {
 const ConfigAgent = defineAgent({
   name: "ConfigAgent",
   config: TestConfig,
-  constructorParams: {},
+  id: {},
   methods: {
-    initialGreeting: method({ params: {}, success: Schema.String }),
-    currentGreeting: method({ params: {}, success: Schema.String }),
-    keyTail: method({ params: {}, success: Schema.String }),
+    initialGreeting: method({ input: {}, success: Schema.String }),
+    currentGreeting: method({ input: {}, success: Schema.String }),
+    keyTail: method({ input: {}, success: Schema.String }),
   },
 }).implement(() =>
   Effect.gen(function* () {
@@ -366,8 +366,8 @@ describe("agent-guest exports", () => {
     // diagnostic instead of as a WASM instantiation crash).
     defineAgent({
       name: "Greeter",
-      constructorParams: {},
-      methods: { ping: method({ params: {}, success: Schema.Void }) },
+      id: {},
+      methods: { ping: method({ input: {}, success: Schema.Void }) },
     }).implement(() => Effect.succeed({ ping: () => Effect.void }))
     let caught: unknown
     try {

@@ -12,12 +12,12 @@ export const Caller = defineAgent({
   name: "Caller",
   description: "Coordinator that drives a remote Counter via wasm-rpc",
   mode: "durable",
-  constructorParams: { counterName: Schema.String },
+  id: { counterName: Schema.String },
   methods: {
     /** Increment the remote counter once and return its new value. */
-    bump: method({ params: {}, success: Schema.Number }),
+    bump: method({ input: {}, success: Schema.Number }),
     /** Read the current value of the remote counter. */
-    peek: method({ params: {}, success: Schema.Number }),
+    peek: method({ input: {}, success: Schema.Number }),
     /**
      * Construct a Counter client with an RPC config override for the
      * `greeting` field, then read it back via `currentGreeting`. Proves
@@ -25,7 +25,7 @@ export const Caller = defineAgent({
      * `golem:agent/host.WasmRpc(agent-config: list<typed-agent-config-value>)`
      * and that the override wins over the `golem.yaml` default.
      */
-    greetWithOverride: method({ params: { override: Schema.String }, success: Schema.String }),
+    greetWithOverride: method({ input: { override: Schema.String }, success: Schema.String }),
     /**
      * Forks a long-running remote `slowValue` invocation, sleeps
      * briefly, then `Fiber.interrupt`s the forked fiber. Returns
@@ -36,7 +36,7 @@ export const Caller = defineAgent({
      * `golem -L agent oplog 'Caller("...")'` to see the
      * `future-invoke-result.cancel()` entry.
      */
-    abortInFlight: method({ params: { seconds: Schema.Number }, success: Schema.Boolean }),
+    abortInFlight: method({ input: { seconds: Schema.Number }, success: Schema.Boolean }),
   },
 }).implement(({ counterName }) =>
   Effect.succeed({

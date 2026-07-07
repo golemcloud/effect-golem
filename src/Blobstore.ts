@@ -10,11 +10,11 @@
  *
  * defineAgent({
  *   name: "Photos",
- *   constructorParams: { name: Schema.String },
+ *   id: { name: Schema.String },
  *   methods: {
- *     upload: method({ params: { key: Schema.String, body: Schema.Uint8Array }, success: Schema.Void }),
- *     download: method({ params: { key: Schema.String }, success: Schema.Uint8Array }),
- *     list: method({ params: {}, success: Schema.Array(Schema.String) }),
+ *     upload: method({ input: { key: Schema.String, body: Schema.Uint8Array }, success: Schema.Void }),
+ *     download: method({ input: { key: Schema.String }, success: Schema.Uint8Array }),
+ *     list: method({ input: {}, success: Schema.Array(Schema.String) }),
  *   },
  *   impl: ({ name }) =>
  *     Effect.gen(function* () {
@@ -33,6 +33,7 @@
 
 import { Effect, Schema, Scope, Stream } from "effect"
 import { BlobstoreClient, type HostContainer } from "./host/BlobstoreClient.js"
+import { strictTextDecoder } from "./internal/textDecoder.js"
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -304,7 +305,7 @@ const decodeObjectMetadata = (m: {
 // surfaces as the SDK-internal {@link BlobstoreDecodeError}.
 
 const encoder = new TextEncoder()
-const strictDecoder = new TextDecoder("utf-8", { fatal: true })
+const strictDecoder = strictTextDecoder()
 
 const decodeUtf8 = (bytes: Uint8Array): Effect.Effect<string, BlobstoreDecodeError> =>
   Effect.try({

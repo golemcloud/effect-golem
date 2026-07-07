@@ -50,33 +50,33 @@ export const QuotaTester = defineAgent({
   description:
     "Probe agent that exercises the effect-golem Quota.* wrappers against a real Golem runtime",
   mode: "durable",
-  constructorParams: { name: Schema.String },
+  id: { name: Schema.String },
   methods: {
     acquire: method({
-      params: { expected: Schema.String },
+      input: { expected: Schema.String },
       success: Schema.Struct({
         resourceName: Schema.String,
         expectedUse: Schema.String,
       }),
     }),
     withReservationOk: method({
-      params: { amount: Schema.String, used: Schema.String },
+      input: { amount: Schema.String, used: Schema.String },
       success: Schema.String,
     }),
     withReservationFailure: method({
-      params: { amount: Schema.String },
+      input: { amount: Schema.String },
       success: Schema.String,
     }),
     manualReserveCommit: method({
-      params: { amount: Schema.String, used: Schema.String },
+      input: { amount: Schema.String, used: Schema.String },
       success: Schema.String,
     }),
     manualReserveDrop: method({
-      params: { amount: Schema.String },
+      input: { amount: Schema.String },
       success: Schema.String,
     }),
     splitMerge: method({
-      params: { initial: Schema.String, child: Schema.String },
+      input: { initial: Schema.String, child: Schema.String },
       success: Schema.Struct({
         afterSplitParent: Schema.String,
         afterSplitChild: Schema.String,
@@ -84,7 +84,7 @@ export const QuotaTester = defineAgent({
       }),
     }),
     exhaustAndReject: method({
-      params: { amount: Schema.String },
+      input: { amount: Schema.String },
       success: ReserveOutcome,
     }),
   },
