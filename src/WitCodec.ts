@@ -7,6 +7,7 @@ import type * as CoreTypes from "golem:core/types@1.5.0"
 import { witGraphCodec, type WitValueTree } from "./internal/witTree.js"
 import {
   variantCaseNameAnnotationKey,
+  witPrincipalAnnotationKey,
   witTypeAnnotationKey,
   witTypedArrayAnnotationKey,
   type WitNumericKind,
@@ -242,6 +243,9 @@ const declarationConstructorTag = (a: SchemaAST.AST): string | undefined => {
 const typedArrayKindOf = (a: SchemaAST.AST): WitTypedArrayKind | undefined =>
   annotationOf<WitTypedArrayKind>(a, witTypedArrayAnnotationKey)
 
+const isPrincipalAST = (a: SchemaAST.AST): boolean =>
+  annotationOf<boolean>(a, witPrincipalAnnotationKey) === true
+
 /**
  * Per-typed-array element WIT primitive (type tag + value tag) plus an
  * optional element coercion (used to keep `bigint` payloads for s64/u64
@@ -287,6 +291,184 @@ const typedArrayCtor: Record<WitTypedArrayKind, new (entries: Iterable<any>) => 
   f64: Float64Array,
   "big-i64": BigInt64Array,
   "big-u64": BigUint64Array,
+}
+
+// ---------- Principal (WIT `golem:agent/common` `principal` variant) ----------
+//
+// A `Principal` carried as ordinary structured data (a method param / return),
+// as opposed to the `Principal` capability service. The WIT graph mirrors the
+// host `Principal` shape exactly (case order oidc/agent/golem-user/anonymous),
+// and the `TransformPair` round-trips a host `Principal` <-> `WitValueTree`.
+
+type HostUuid = { highBits: bigint; lowBits: bigint }
+
+// --- WitValueTree builders / accessors ---
+const u64V = (x: bigint): WitValueTree => ({ tag: "prim-u64", val: x }) as WitValueTree
+const strV = (x: string): WitValueTree => ({ tag: "prim-string", val: x }) as WitValueTree
+const boolV = (x: boolean): WitValueTree => ({ tag: "prim-bool", val: x }) as WitValueTree
+const recV = (fields: ReadonlyArray<WitValueTree>): WitValueTree =>
+  ({ tag: "record-value", val: fields }) as WitValueTree
+const optV = (inner: WitValueTree | undefined): WitValueTree =>
+  ({ tag: "option-value", val: inner }) as WitValueTree
+const recFieldsOf = (t: WitValueTree): ReadonlyArray<WitValueTree> =>
+  (t as { val: ReadonlyArray<WitValueTree> }).val
+const primValOf = (t: WitValueTree): any => (t as { val: unknown }).val
+const optValOf = (t: WitValueTree): WitValueTree | undefined =>
+  (t as { val: WitValueTree | undefined }).val
+
+// --- host shape <-> WitValueTree ---
+const uuidToTree = (u: HostUuid): WitValueTree => recV([u64V(u.highBits), u64V(u.lowBits)])
+const uuidFromTree = (t: WitValueTree): HostUuid => {
+  const f = recFieldsOf(t)
+  return { highBits: primValOf(f[0]!), lowBits: primValOf(f[1]!) }
+}
+
+const agentIdToTree = (a: AgentCommon.AgentId): WitValueTree =>
+  recV([recV([uuidToTree(a.componentId.uuid)]), strV(a.agentId)])
+const agentIdFromTree = (t: WitValueTree): AgentCommon.AgentId => {
+  const f = recFieldsOf(t)
+  const uuid = uuidFromTree(recFieldsOf(f[0]!)[0]!)
+  return { componentId: { uuid }, agentId: primValOf(f[1]!) }
+}
+
+const accountIdToTree = (a: AgentCommon.AccountId): WitValueTree => recV([uuidToTree(a.uuid)])
+const accountIdFromTree = (t: WitValueTree): AgentCommon.AccountId => ({
+  uuid: uuidFromTree(recFieldsOf(t)[0]!),
+})
+
+const oidcToTree = (o: AgentCommon.OidcPrincipal): WitValueTree => {
+  const optStr = (x: string | undefined): WitValueTree =>
+    optV(x === undefined ? undefined : strV(x))
+  return recV([
+    strV(o.sub),
+    strV(o.issuer),
+    optStr(o.email),
+    optStr(o.name),
+    optV(o.emailVerified === undefined ? undefined : boolV(o.emailVerified)),
+    optStr(o.givenName),
+    optStr(o.familyName),
+    optStr(o.picture),
+    optStr(o.preferredUsername),
+    strV(o.claims),
+  ])
+}
+const oidcFromTree = (t: WitValueTree): AgentCommon.OidcPrincipal => {
+  const f = recFieldsOf(t)
+  const optStr = (fld: WitValueTree): string | undefined => {
+    const inner = optValOf(fld)
+    return inner === undefined ? undefined : primValOf(inner)
+  }
+  const out: AgentCommon.OidcPrincipal = {
+    sub: primValOf(f[0]!),
+    issuer: primValOf(f[1]!),
+    claims: primValOf(f[9]!),
+  }
+  const email = optStr(f[2]!)
+  if (email !== undefined) out.email = email
+  const name = optStr(f[3]!)
+  if (name !== undefined) out.name = name
+  const ev = optValOf(f[4]!)
+  if (ev !== undefined) out.emailVerified = primValOf(ev)
+  const givenName = optStr(f[5]!)
+  if (givenName !== undefined) out.givenName = givenName
+  const familyName = optStr(f[6]!)
+  if (familyName !== undefined) out.familyName = familyName
+  const picture = optStr(f[7]!)
+  if (picture !== undefined) out.picture = picture
+  const preferredUsername = optStr(f[8]!)
+  if (preferredUsername !== undefined) out.preferredUsername = preferredUsername
+  return out
+}
+
+const principalToTree = (p: AgentCommon.Principal): WitValueTree => {
+  switch (p.tag) {
+    case "oidc":
+      return { tag: "variant-value", val: [0, oidcToTree(p.val)] } as WitValueTree
+    case "agent":
+      return { tag: "variant-value", val: [1, recV([agentIdToTree(p.val.agentId)])] } as WitValueTree
+    case "golem-user":
+      return {
+        tag: "variant-value",
+        val: [2, recV([accountIdToTree(p.val.accountId)])],
+      } as WitValueTree
+    case "anonymous":
+      return { tag: "variant-value", val: [3, undefined] } as WitValueTree
+  }
+}
+const principalFromTree = (t: WitValueTree): AgentCommon.Principal => {
+  const vv = t as { val: readonly [number, WitValueTree | undefined] }
+  const i = vv.val[0]
+  const payload = vv.val[1]
+  switch (i) {
+    case 0:
+      return { tag: "oidc", val: oidcFromTree(payload as WitValueTree) }
+    case 1:
+      return { tag: "agent", val: { agentId: agentIdFromTree(recFieldsOf(payload as WitValueTree)[0]!) } }
+    case 2:
+      return {
+        tag: "golem-user",
+        val: { accountId: accountIdFromTree(recFieldsOf(payload as WitValueTree)[0]!) },
+      }
+    default:
+      return { tag: "anonymous" }
+  }
+}
+
+/**
+ * Build the `principal` variant-type node (pushing its record/field children
+ * into the graph via `push`) plus the host-`Principal` round-trip pair.
+ */
+const principalNode = (
+  push: (type: WitTypeNode, name?: string) => number,
+): { node: WitTypeNode; pair: TransformPair } => {
+  const u64Idx = push({ tag: "prim-u64-type" })
+  const strIdx = push({ tag: "prim-string-type" })
+  const boolIdx = push({ tag: "prim-bool-type" })
+  const optStrIdx = push({ tag: "option-type", val: strIdx })
+  const optBoolIdx = push({ tag: "option-type", val: boolIdx })
+  const uuidIdx = push({
+    tag: "record-type",
+    val: [
+      ["highBits", u64Idx],
+      ["lowBits", u64Idx],
+    ],
+  })
+  const componentIdIdx = push({ tag: "record-type", val: [["uuid", uuidIdx]] })
+  const agentIdIdx = push({
+    tag: "record-type",
+    val: [
+      ["componentId", componentIdIdx],
+      ["agentId", strIdx],
+    ],
+  })
+  const accountIdIdx = push({ tag: "record-type", val: [["uuid", uuidIdx]] })
+  const oidcIdx = push({
+    tag: "record-type",
+    val: [
+      ["sub", strIdx],
+      ["issuer", strIdx],
+      ["email", optStrIdx],
+      ["name", optStrIdx],
+      ["emailVerified", optBoolIdx],
+      ["givenName", optStrIdx],
+      ["familyName", optStrIdx],
+      ["picture", optStrIdx],
+      ["preferredUsername", optStrIdx],
+      ["claims", strIdx],
+    ],
+  })
+  const agentPrincipalIdx = push({ tag: "record-type", val: [["agentId", agentIdIdx]] })
+  const golemUserIdx = push({ tag: "record-type", val: [["accountId", accountIdIdx]] })
+  const node: WitTypeNode = {
+    tag: "variant-type",
+    val: [
+      ["oidc", oidcIdx],
+      ["agent", agentPrincipalIdx],
+      ["golem-user", golemUserIdx],
+      ["anonymous", undefined],
+    ],
+  }
+  return { node, pair: { toTree: principalToTree, fromTree: principalFromTree } }
 }
 
 /**
@@ -580,6 +762,11 @@ const walk = (
             return yield* unionNode(a)
 
           case "Declaration": {
+            // A `Principal` carried as data (annotated via `PrincipalSchema`):
+            // emit the `principal` variant rather than an unknown declared type.
+            if (isPrincipalAST(a)) {
+              return principalNode(push)
+            }
             // Typed-array hints (Uint8ArraySchema, …) take precedence —
             // the Declaration just carries the runtime guard, so we emit
             // a dedicated `list<primN>` shape here rather than treating
