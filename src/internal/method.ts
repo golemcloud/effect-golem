@@ -64,6 +64,26 @@ export type MethodInput<Input extends MethodParams> = {
   readonly [K in keyof Input]: ParamInputType<Input[K]>
 }
 
+/**
+ * Fine-grained read-only configuration for a method (surfaced as the WIT
+ * `agent-method.read-only` / `read-only-config`).
+ *
+ * - `cache`: the caching policy for the read-only result —
+ *   - `'no-cache'`: never cache;
+ *   - `'until-write'`: cache until a mutating (non-read-only) method runs — this
+ *     is the policy used when `readOnly` is set to the convenience boolean `true`;
+ *   - `{ ttlNanos }`: cache for the given time-to-live (nanoseconds).
+ * - `usesPrincipal`: when `true`, the cache key includes the caller principal
+ *   (a per-principal cache). Defaults to `false`.
+ *
+ * @since 1.6.0
+ * @category models
+ */
+export interface ReadOnlyOption {
+  readonly cache?: "no-cache" | "until-write" | { readonly ttlNanos: bigint }
+  readonly usesPrincipal?: boolean
+}
+
 declare const methodHasHttpBrand: unique symbol
 
 /**
@@ -114,6 +134,12 @@ export interface MethodSpec<
   readonly description?: string
   /** Optional `prompt-hint`, surfaced as `agent-method.prompt-hint`. */
   readonly promptHint?: string
+  /**
+   * Marks the method as read-only (surfaced as `agent-method.read-only`).
+   * `true` uses the `until-write` cache policy (the base-SDK default); pass a
+   * {@link ReadOnlyOption} for `no-cache` / `ttl` / per-principal caching.
+   */
+  readonly readOnly?: boolean | ReadOnlyOption
   /**
    * Optional list of HTTP endpoints exposing this method through the
    * Golem host. Compiled to `agent-method.http-endpoint`. Each endpoint
@@ -323,6 +349,7 @@ export const method: {
     readonly error: Error
     readonly description?: string
     readonly promptHint?: string
+    readonly readOnly?: boolean | ReadOnlyOption
     readonly http?: ValidateEndpointsTuple<Eps, Input>
   }): MethodSpec<Input, Success, Error, IsNonEmptyTuple<Eps>>
   <
@@ -334,6 +361,7 @@ export const method: {
     readonly success: Success
     readonly description?: string
     readonly promptHint?: string
+    readonly readOnly?: boolean | ReadOnlyOption
     readonly http?: ValidateEndpointsTuple<Eps, Input>
   }): MethodSpec<Input, Success, typeof Schema.Void, IsNonEmptyTuple<Eps>>
 } = (spec: any): any => withPipe({ error: Schema.Void, ...spec })
@@ -441,6 +469,24 @@ export const withPromptHint =
   (promptHint: string) =>
   <T extends MethodSpec<any, any, any>>(spec: T): T =>
     withPipe({ ...spec, promptHint }) as unknown as T
+
+/**
+ * Mark a `MethodSpec` as read-only, surfaced as `agent-method.read-only`
+ * in the WIT metadata. `true` uses the `until-write` cache policy (the
+ * base-SDK default); pass a {@link ReadOnlyOption} for `no-cache` / `ttl`
+ * / per-principal caching. Replaces any previous value.
+ *
+ * Generic over the full input spec type, so when applied to a
+ * {@link Method} (which carries a `body` and a `name`) those extra
+ * fields are preserved in the returned value.
+ *
+ * @since 1.6.0
+ * @category combinators
+ */
+export const withReadOnly =
+  (readOnly: boolean | ReadOnlyOption = true) =>
+  <T extends MethodSpec<any, any, any>>(spec: T): T =>
+    withPipe({ ...spec, readOnly }) as unknown as T
 
 /**
  * A `Method` is a `MethodSpec` paired with a name and a body. Use

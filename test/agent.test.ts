@@ -65,7 +65,7 @@ const Counter = defineAgent({
   name: "Counter",
   id: { initial: Schema.Number },
   methods: {
-    getValue: method({ input: {}, success: Schema.Number }),
+    getValue: method({ input: {}, success: Schema.Number, readOnly: true }),
     add: method({ input: { by: Schema.Number }, success: Schema.Void }),
   },
 }).implement(({ initial }) =>
@@ -221,6 +221,22 @@ describe("agent-guest exports", () => {
       // Unset description defaults to "" (matches WIT `description: string`).
       expect(ping.description).toBe("")
       expect(ping.promptHint).toBeUndefined()
+    }),
+  )
+
+  it.effect("propagates method-level readOnly to AgentMethod.read-only", () =>
+    Effect.gen(function* () {
+      const types = yield* Effect.promise(() => guest.discoverAgentTypes())
+      const counter = types.find((t) => t.typeName === "Counter")!
+      const getValue = counter.methods.find((m) => m.name === "getValue")!
+      // `readOnly: true` → `until-write` caching (base default), no principal.
+      expect(getValue.readOnly).toEqual({
+        cachePolicy: { tag: "until-write" },
+        usesPrincipal: false,
+      })
+      // A method without `readOnly` leaves `read-only` unset.
+      const add = counter.methods.find((m) => m.name === "add")!
+      expect(add.readOnly).toBeUndefined()
     }),
   )
 

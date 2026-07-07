@@ -28,6 +28,7 @@ import {
   type MethodInput,
   type MethodParams,
   type MethodSpec,
+  type ReadOnlyOption,
 } from "./method.js"
 import {
   emptyMetadata,
@@ -73,6 +74,32 @@ import type {
 } from "../Config.js"
 import * as GolemLogging from "../Logging.js"
 import * as GolemTracing from "../Tracing.js"
+
+/**
+ * Resolve a method's `readOnly` option into the WIT `read-only-config`
+ * (`agent-method.read-only`), or `undefined` when the method is not read-only.
+ *
+ * - `undefined` / `false` → `undefined` (the method is not read-only);
+ * - `true` → `until-write` caching (the base-SDK default), no principal;
+ * - object form → `no-cache` / `until-write` / `ttl` caching plus the
+ *   `usesPrincipal` flag.
+ */
+const resolveReadOnly = (
+  readOnly: boolean | ReadOnlyOption | undefined,
+): AgentCommon.ReadOnlyConfig | undefined => {
+  if (readOnly === undefined || readOnly === false) return undefined
+  const opt: ReadOnlyOption = readOnly === true ? {} : readOnly
+  const cache = opt.cache
+  let cachePolicy: AgentCommon.CachePolicy
+  if (cache === undefined || cache === "until-write") {
+    cachePolicy = { tag: "until-write" }
+  } else if (cache === "no-cache") {
+    cachePolicy = { tag: "no-cache" }
+  } else {
+    cachePolicy = { tag: "ttl", val: cache.ttlNanos }
+  }
+  return { cachePolicy, usesPrincipal: opt.usesPrincipal ?? false }
+}
 
 /**
  * Combined Logger + Tracer layer applied automatically to every piece
@@ -767,7 +794,7 @@ export const registerAgent = <
         description: spec.description ?? "",
         httpEndpoint: [...eps],
         promptHint: spec.promptHint,
-        readOnly: undefined,
+        readOnly: resolveReadOnly(spec.readOnly),
         inputSchema: encodeInput(mc.inputCodecs),
         outputSchema,
       })
