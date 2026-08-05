@@ -19,14 +19,19 @@ import { existsSync, rmSync, readFileSync, writeFileSync } from "node:fs"
 // the upstream wit-bindgen version, so we rewrite the manifest after generation.
 // ---------------------------------------------------------------------------
 const WIT_BINDGEN_GIT = "https://github.com/golemcloud/wit-bindgen"
-const WIT_BINDGEN_BRANCH = "golem-outline-lift-v0.58.0"
+const WIT_BINDGEN_REVISION = "4407232ead86d9bcbd06cbebd790a52120a4087a"
 
 function useForkedWitBindgen(cargoTomlPath) {
   const original = readFileSync(cargoTomlPath, "utf8")
   const witBindgenLine =
-    'wit-bindgen = { version = "0.42.1", default-features = false, features = ["macros"] }'
-  const witBindgenRtLine = 'wit-bindgen-rt = { version = "0.42.1", features = ["bitflags"] }'
-  const forkedLine = `wit-bindgen = { git = "${WIT_BINDGEN_GIT}", branch = "${WIT_BINDGEN_BRANCH}", version = "=0.58.0", default-features = false, features = ["macros"] }`
+    'wit-bindgen = { version = "0.42.1", default-features = false, features = ["macros"], optional = true }'
+  const witBindgenRtLine =
+    'wit-bindgen-rt = { version = "0.42.1", features = ["bitflags"], optional = true }'
+  const p2FeatureLine =
+    'p2 = ["dep:wit-bindgen", "dep:wit-bindgen-rt", "dep:wasip2", "dep:wstd", "golem-websocket?/p2"]'
+  const forkedP2FeatureLine =
+    'p2 = ["dep:wit-bindgen", "dep:wasip2", "dep:wstd", "golem-websocket?/p2"]'
+  const forkedLine = `wit-bindgen = { git = "${WIT_BINDGEN_GIT}", rev = "${WIT_BINDGEN_REVISION}", version = "=0.59.0", default-features = false, features = ["macros"], optional = true }`
 
   if (original.split(witBindgenLine).length - 1 !== 1) {
     throw new Error(
@@ -38,11 +43,23 @@ function useForkedWitBindgen(cargoTomlPath) {
       `Expected exactly one wit-bindgen-rt dependency line in ${cargoTomlPath}; the wasm-rquickjs skeleton may have changed.`,
     )
   }
+  if (original.split(p2FeatureLine).length - 1 !== 1) {
+    throw new Error(
+      `Expected exactly one Preview 2 feature line in ${cargoTomlPath}; the wasm-rquickjs skeleton may have changed.`,
+    )
+  }
 
   // The forked wit-bindgen embeds its own runtime, so drop the separate
   // wit-bindgen-rt crate.
-  const updated = original.replace(`${witBindgenRtLine}\n`, "").replace(witBindgenLine, forkedLine)
-  if (!updated.includes(WIT_BINDGEN_GIT) || updated.includes(witBindgenRtLine)) {
+  const updated = original
+    .replace(`${witBindgenRtLine}\n`, "")
+    .replace(witBindgenLine, forkedLine)
+    .replace(p2FeatureLine, forkedP2FeatureLine)
+  if (
+    !updated.includes(WIT_BINDGEN_REVISION) ||
+    updated.includes(witBindgenRtLine) ||
+    updated.includes('"dep:wit-bindgen-rt"')
+  ) {
     throw new Error(`Failed to rewrite the wit-bindgen dependency in ${cargoTomlPath}.`)
   }
   writeFileSync(cargoTomlPath, updated)
